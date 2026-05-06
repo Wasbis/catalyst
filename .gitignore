@@ -1,0 +1,20 @@
+# Dependency Node.js (Catalyst Scout & Ops)
+node_modules/
+.next/
+out/
+build/
+
+# Dependency Python (Scraper Engine)
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Environment Variables (Rahasia!)
+.env
+.env.local
+
+# OS Files
+.DS_Store
+Thumbs.db

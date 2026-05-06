@@ -1,0 +1,11 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
+APScheduler==3.10.4
+httpx==0.25.1
+beautifulsoup4==4.12.2
+sentence-transformers==2.2.2
+torch==2.1.0  # Dipanggil oleh sentence-transformers
+pydantic==2.5.2
+pdfplumber==0.10.3

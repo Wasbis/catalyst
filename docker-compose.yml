@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: catalyst_db
+    environment:
+      POSTGRES_USER: catalyst_user
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: catalyst_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  scraper-engine:
+    build:
+      context: ./scraper-engine
+      dockerfile: Dockerfile
+    container_name: catalyst_scraper_engine
+    depends_on:
+      - postgres-db
+    environment:
+      - DATABASE_URL=postgresql://catalyst_user:supersecretpassword@postgres-db:5432/catalyst_db
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
