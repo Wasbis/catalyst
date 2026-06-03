@@ -31,6 +31,7 @@ def semantic_kbli_match(
     cosine_scores = util.cos_sim(scraped_vector, kbli_vectors)[0]
 
     # Cari skor tertinggi
+
     best_match_idx = int(cosine_scores.argmax())
     best_score = float(cosine_scores[best_match_idx])
 

@@ -1,13 +1,248 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// prisma/schema.prisma
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================================================
+// USER & AUTH
+// ==========================================================================
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  role          String         @default("engineer") // 'admin' | 'engineer' | 'manager'
+  createdAt     DateTime       @default(now())
+  tasks         TenderTask[]
+  notifications Notification[]
+}
+
+// ==========================================================================
+// MASTER DATA
+// ==========================================================================
+
+model MasterKbli {
+  id          Int      @id @default(autoincrement())
+  kbliCode    String   @unique
+  description String   @db.Text
+  category    String?  // Kelompok besar KBLI, opsional
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  // Relasi ke tender yang sudah dipromote
+  tenders     Tender[]
+
+  @@index([isActive])
+}
+
+// Privacy & security — kata/frasa sensitif yang di-mask sebelum dikirim AI
+model DataMasking {
+  id          String   @id @default(uuid())
+  keyword     String   @unique @db.Text // Kata sensitif: "GeoDipa", "Habil", dll.
+  replacement String   @db.Text         // Pengganti: "[CLIENT_A]", "[ENGINEER_NAME]"
+  category    String                    // 'client' | 'internal_name' | 'project_name'
+  isRegex     Boolean  @default(false)  // true = keyword adalah pola regex
+  isActive    Boolean  @default(true)   // false = nonaktifkan tanpa hapus data
+  createdAt   DateTime @default(now())
+
+  @@index([isActive])
+  @@index([isRegex])
+}
+
+// ==========================================================================
+// SCRAPER CONFIG
+// ==========================================================================
+
+model ScraperSetting {
+  id           Int       @id @default(autoincrement())
+  targetName   String    // "GeoDipa" | "CIVD" | "GEP"
+  targetUrl    String    @db.Text
+  cronSchedule String    // "0 9 * * *"
+  isActive     Boolean   @default(true)
+
+  // Tracking run terakhir — diisi oleh background task
+  lastRunAt    DateTime?
+  lastCount    Int?      // Jumlah tender baru di run terakhir
+  lastError    String?   @db.Text // Pesan error terakhir, null = sukses
+  updatedAt    DateTime  @updatedAt
+}
+
+// ==========================================================================
+// TENDER — 2 lapisan:
+//   TenderResult : data mentah hasil scraper (staging)
+//   Tender       : lead yang sudah dievaluasi & dikelola tim
+// ==========================================================================
+
+// Raw scrape result — ditulis scraper Python, tidak disentuh user langsung
+model TenderResult {
+  id                    Int      @id @default(autoincrement())
+  source                String   // 'geodipa' | 'civd' | 'gep'
+  title                 String   @db.Text
+  agency                String?
+
+  // URL — kosong untuk CIVD (tidak ada halaman detail terpisah)
+  detailUrl             String?  @db.Text
+
+  // Teks gabungan untuk AI matching
+  tenderText            String?  @db.Text
+
+  // Lampiran
+  docUrl                String?  @db.Text
+  docFilesJson          String?  @db.Text // JSON array attachment
+
+  // Hasil AI matching (diisi setelah proses matching)
+  matchedKbli           String?
+  matchScore            Float?
+
+  // Field khusus CIVD
+  announcementType      Int?     // 1=PQ | 2=Tender | 3=Pemilihan
+  announcementTypeLabel String?
+  golonganUsahaJson     String?  @db.Text // JSON array
+  jenisPengadaan        String?
+  bidangUsahaJson       String?  @db.Text // JSON array
+
+  // Waktu
+  deadlineText          String?
+  publishDate           String?
+
+  // Dedup — MD5 hash title+agency+source
+  fingerprint           String?  @unique
+
+  scrapedAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Setelah dievaluasi, bisa dipromote ke Tender
+  promotedTender        Tender?
+
+  @@index([source])
+  @@index([scrapedAt])
+  @@index([matchedKbli])
+}
+
+// Lead aktif yang dikelola tim — hasil promote dari TenderResult
+model Tender {
+  id                String     @id @default(uuid())
+
+  // Sumber data (bisa dari TenderResult atau input manual)
+  sourceWeb         String     // 'geodipa' | 'civd' | 'gep' | 'manual'
+  title             String     @db.Text
+  agency            String
+  budgetValue       BigInt?
+  requirementText   String     @db.Text
+  matchMethod       String?    // 'exact_regex' | 'semantic_ai'
+  aiSimilarityScore Float?
+  status            String     @default("new_lead")
+  // 'new_lead' | 'evaluating' | 'bidding' | 'won' | 'lost' | 'cancelled'
+
+  urlLink           String?    @db.Text
+  docUrl            String?    @db.Text
+  deadline          DateTime?
+
+  // Link ke raw data scraper (nullable — manual entry tidak punya TenderResult)
+  tenderResultId    Int?       @unique
+  tenderResult      TenderResult? @relation(fields: [tenderResultId], references: [id])
+
+  // Link ke KBLI
+  matchedKbliCode   String?
+  kbli              MasterKbli? @relation(fields: [matchedKbliCode], references: [kbliCode])
+
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  tasks             TenderTask[]
+  proposalDraft     ProposalDraft?
+
+  @@index([status])
+  @@index([matchedKbliCode])
+  @@index([sourceWeb])
+  @@index([deadline])
+}
+
+model TenderTask {
+  id          String    @id @default(uuid())
+  taskTitle   String
+  status      String    @default("todo") // 'todo' | 'in_progress' | 'done'
+  dueDate     DateTime?
+  tenderId    String
+  tender      Tender    @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  assigneeId  String?
+  assignee    User?     @relation(fields: [assigneeId], references: [id])
+  createdAt   DateTime  @default(now())
+
+  @@index([tenderId])
+  @@index([status])
+}
+
+// ==========================================================================
+// AI PROPOSAL AGENT & RAG
+// ==========================================================================
+
+model KnowledgeBase {
+  id         String   @id @default(uuid())
+  fileName   String
+  fileType   String   // 'proposal_lama' | 'company_profile' | 'spesifikasi_teknis'
+  filePath   String
+
+  // pgvector — kolom ini ditambah manual setelah prisma migrate:
+  // ALTER TABLE "KnowledgeBase" ADD COLUMN embedding vector(1536);
+  // Gunakan extension: CREATE EXTENSION IF NOT EXISTS vector;
+  uploadedAt DateTime @default(now())
+}
+
+model ProposalTemplate {
+  id        String   @id @default(uuid())
+  name      String
+  filePath  String   // Path ke .docx template CRI
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model ProposalDraft {
+  id       String          @id @default(uuid())
+  tenderId String          @unique
+  tender   Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  status   String          @default("analysis")
+  // 'analysis' | 'drafting' | 'review' | 'final'
+  blocks   ProposalBlock[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+model ProposalBlock {
+  id           String        @id @default(uuid())
+  draftId      String
+  draft        ProposalDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  title        String        // "Latar Belakang" | "Metodologi" | "Jadwal" dll
+  content      String        @db.Text
+  aiSourceData String?       @db.Text // Referensi dokumen RAG yang dipakai
+  userComment  String?       @db.Text // Feedback reviewer untuk revisi AI
+  isApproved   Boolean       @default(false)
+  order        Int           // Urutan blok di dokumen final
+
+  @@index([draftId])
+  @@index([order])
+}
+
+// ==========================================================================
+// NOTIFICATION
+// ==========================================================================
+
+model Notification {
+  id         String   @id @default(uuid())
+  title      String
+  message    String   @db.Text
+  actionLink String?  @db.Text
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
 }
