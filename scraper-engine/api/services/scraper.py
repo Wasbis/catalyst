@@ -98,14 +98,6 @@ class CatalystScraper:
     ) -> List[Dict[str, Any]]:
         """
         Scrape GeoDipa via REST API internal (POST JSON per halaman).
-
-        Endpoint : POST https://www.geodipa.co.id/wp-json/geodipa/v1/auction-list/
-        Payload  : {"page": "N", "total": "6", "status": "all", "date": ""}
-        Response : {"html": "<div class='item'>...</div>", ...}
-
-        Args:
-            max_pages      : Batas halaman (default 85 — sesuai total data GeoDipa).
-            existing_urls  : List URL yang sudah ada di DB untuk skip duplikat.
         """
         api_url = "https://www.geodipa.co.id/wp-json/geodipa/v1/auction-list/"
         tenders = []
@@ -141,7 +133,17 @@ class CatalystScraper:
                         timeout=20.0,
                     )
                     resp.raise_for_status()
-                    html_chunk = resp.json().get("html", "")
+
+                    raw = resp.json()
+                    if isinstance(raw, dict):
+                        html_chunk = raw.get("html", "")
+                    elif isinstance(raw, str):
+                        html_chunk = raw
+                    else:
+                        logger.warning(
+                            f"[GeoDipa] Unexpected response type: {type(raw)}"
+                        )
+                        break
 
                     if not html_chunk or "No auctions found" in html_chunk:
                         logger.info(f"[GeoDipa] Hal {page} kosong — berhenti.")
@@ -204,7 +206,7 @@ class CatalystScraper:
             else "Tender GeoDipa"
         )
 
-        # Teks syarat (semua div.format-text digabung)
+        # Teks syarat
         req_texts = []
         format_texts = soup.find_all("div", class_="format-text")
         for ft in format_texts:
@@ -239,17 +241,6 @@ class CatalystScraper:
     # =========================================================================
     # KAMAR 2 — CIVD SKK MIGAS
     # =========================================================================
-    # Struktur situs:
-    #   GET  /index.jwebs                          → init session (jsessionid)
-    #   GET  /ajax/search/tnd.jwebs
-    #            ?type={1|2|3}&keyword=&d-1789-p=N → AJAX pagination
-    #   POST /download/tnd/ann.jwebs               → download lampiran
-    #        body: {"fileId": "..."}
-    #
-    # Seluruh data tender sudah ada di HTML card —
-    # modal "Lebih lanjut" hanya tampil ulang data yang sama via JS,
-    # sehingga TIDAK perlu request terpisah ke detail page.
-    # =========================================================================
 
     async def scrape_civd(
         self,
@@ -260,12 +251,6 @@ class CatalystScraper:
     ) -> List[Dict[str, Any]]:
         """
         Scrape CIVD SKK Migas via AJAX pagination.
-
-        Args:
-            max_pages             : Batas halaman per tipe pengumuman.
-            keyword               : Filter kata kunci (opsional).
-            announcement_types    : Tipe yang di-scrape [1,2,3]; default semua.
-            existing_fingerprints : Fingerprint yang sudah ada di DB (untuk dedup).
         """
         if announcement_types is None:
             announcement_types = list(CIVD_ANNOUNCEMENT_TYPES.keys())
@@ -327,7 +312,6 @@ class CatalystScraper:
                     f"max {max_pages} hal..."
                 )
 
-                # Halaman 1 dulu untuk tahu total halaman
                 first_html = await self._civd_fetch_page(
                     client, ajax_url, ann_type, 1, keyword, semaphore
                 )
@@ -342,7 +326,6 @@ class CatalystScraper:
                     f"ambil {actual_max} hal."
                 )
 
-                # Proses halaman 1
                 for item in self._civd_parse_cards(first_html, ann_type, type_label):
                     if item["fingerprint"] in existing_fingerprints:
                         stats["duplicate"] += 1
@@ -354,7 +337,6 @@ class CatalystScraper:
                 if actual_max <= 1:
                     continue
 
-                # Fetch halaman 2..N secara concurrent
                 pages_html = await asyncio.gather(
                     *[
                         self._civd_fetch_page(
@@ -394,7 +376,6 @@ class CatalystScraper:
         keyword: str,
         semaphore: asyncio.Semaphore,
     ) -> Optional[str]:
-        """Fetch satu halaman AJAX CIVD. Return HTML string atau None."""
         async with semaphore:
             await asyncio.sleep(random.uniform(0.3, 0.8))
             try:
@@ -403,7 +384,7 @@ class CatalystScraper:
                     params={
                         "type": str(ann_type),
                         "keyword": keyword,
-                        "d-1789-p": str(page),  # parameter DisplayTag pagination
+                        "d-1789-p": str(page),
                     },
                     headers={
                         **self.headers,
@@ -432,13 +413,23 @@ class CatalystScraper:
         Hitung total halaman dari elemen pagination.
 
         Prioritas:
-        1. Angka terbesar di tombol .pagelinks .uibutton
-        2. Hitung dari teks pagebanner: "55 items found, displays 1 to 6"
+        1. Ekstrak dari href tombol "Last" (nangkep d-xxxx-p=N)
+        2. Angka terbesar di tombol .pagelinks .uibutton yang visible
+        3. Hitung dari teks pagebanner: "55 items found, displays 1 to 6"
         """
         soup = BeautifulSoup(html, "html.parser")
 
         pagelinks = soup.find("div", class_="pagelinks")
         if pagelinks:
+            # Prioritas 1: Cari tombol Last
+            last_btn = pagelinks.find("a", title=re.compile("Last", re.I))
+            if last_btn and last_btn.has_attr("href"):
+                # URL bentuknya: ...d-1789-p=10
+                m_last = re.search(r"d-\d+-p=(\d+)", last_btn["href"])
+                if m_last:
+                    return int(m_last.group(1))
+
+            # Prioritas 2: Fallback ke angka terbesar yang ada di layar
             page_nums = [
                 int(btn.get_text(strip=True))
                 for btn in pagelinks.find_all("a", class_="uibutton")
@@ -447,6 +438,7 @@ class CatalystScraper:
             if page_nums:
                 return max(page_nums)
 
+        # Prioritas 3: Fallback banner text
         banner = soup.find("div", class_="pagebanner")
         if banner:
             txt = banner.get_text()
@@ -468,20 +460,10 @@ class CatalystScraper:
         ann_type: int,
         type_label: str,
     ) -> List[Dict[str, Any]]:
-        """
-        Parse semua card tender dari satu chunk HTML CIVD.
-
-        Field yang diekstrak:
-          title, agency, deadline_text, golongan_usaha (list),
-          jenis_pengadaan, bidang_usaha (list), jenis_pengumuman,
-          doc_files (list {file_id, file_name, download_url}),
-          fingerprint (MD5 title+agency+type), scraped_at (ISO UTC).
-        """
         soup = BeautifulSoup(html, "html.parser")
         cards = soup.find_all("div", class_="card-body")
         scraped_at = datetime.now(timezone.utc).isoformat()
         results = []
-
         for card in cards:
             try:
                 # Judul
@@ -490,7 +472,7 @@ class CatalystScraper:
                 if not title:
                     continue
 
-                # Agency + deadline
+                # Agency + deadline dari subtitle
                 agency = ""
                 deadline_text = ""
                 subtitle_tag = card.find("small", class_="card-subtitle")
@@ -498,7 +480,6 @@ class CatalystScraper:
                     strong_tag = subtitle_tag.find("strong")
                     if strong_tag:
                         agency = strong_tag.get_text(strip=True)
-
                     full_sub = subtitle_tag.get_text(separator=" ", strip=True)
                     deadline_m = re.search(
                         r"Tayang\s+hingga\s+([\d]+\s+\w+\s+[\d]{4})",
@@ -508,21 +489,24 @@ class CatalystScraper:
                     if deadline_m:
                         deadline_text = deadline_m.group(1).strip()
 
+                # 🆕 Deskripsi tender (description text)
+                description = ""
+                desc_tag = card.find("p", class_="card-text")
+                if desc_tag:
+                    description = desc_tag.get_text(separator=" ", strip=True)
+
                 # Golongan, jenis pengadaan, bidang usaha
                 golongan_usaha = []
                 jenis_pengadaan = ""
                 bidang_usaha = []
                 jenis_pengumuman = type_label
                 tipe_tag = card.find("p", class_="tipe")
-
                 if tipe_tag:
                     for span in tipe_tag.find_all("span"):
                         bold = span.find("b")
                         if not bold:
                             continue
                         label = bold.get_text(strip=True).rstrip(":")
-
-                        # Teks dalam span selain bold
                         values = [
                             (
                                 child.get_text(strip=True)
@@ -533,13 +517,10 @@ class CatalystScraper:
                             if child != bold
                         ]
                         val_clean = " ".join(v for v in values if v).strip()
-
                         if "Golongan Usaha" in label:
                             golongan_usaha = [v for v in val_clean.split() if v]
-
                         elif "Jenis Pengadaan" in label:
                             jenis_pengadaan = val_clean
-
                         elif "Bidang Usaha" in label:
                             field_span = tipe_tag.find("span", class_="field")
                             if field_span:
@@ -549,14 +530,13 @@ class CatalystScraper:
                                 ).strip()
                                 for line in raw.splitlines():
                                     line = re.sub(
-                                        r"\s*\(SIUP-IUT-IUI-PROP KBLI 2020\)\s*;?\s*$",
+                                        r"\s*\(SIUP-IUT-IUI-PROP KBLI 20\d{2}\)\s*;?\s*$",
                                         "",
                                         line.strip(),
                                         flags=re.I,
                                     ).strip()
                                     if line:
                                         bidang_usaha.append(line)
-
                         elif "Jenis Pengumuman" in label:
                             jenis_pengumuman = val_clean or type_label
 
@@ -586,6 +566,7 @@ class CatalystScraper:
                         "source": "civd",
                         "title": title,
                         "agency": agency,
+                        "description": description,  # 🆕
                         "deadline_text": deadline_text,
                         "announcement_type": ann_type,
                         "announcement_type_label": jenis_pengumuman,
@@ -594,28 +575,25 @@ class CatalystScraper:
                         "bidang_usaha": bidang_usaha,
                         "doc_files": doc_files,
                         "doc_files_json": json.dumps(doc_files, ensure_ascii=False),
-                        # Shortcut untuk kolom DB dan AI matching
+                        # 🆕 tender_text sekarang include description — penting buat AI matching
                         "tender_text": (
-                            f"{title} {jenis_pengadaan} {' '.join(bidang_usaha)}"
+                            f"{title}\n\n"
+                            f"{description}\n\n"
+                            f"Jenis Pengadaan: {jenis_pengadaan}\n"
+                            f"Bidang Usaha: {'; '.join(bidang_usaha)}"
                         ).strip(),
                         "doc_url": doc_files[0]["download_url"] if doc_files else "",
-                        "detail_url": "",  # CIVD tidak punya halaman detail terpisah
+                        "detail_url": "",
                         "fingerprint": fingerprint,
                         "scraped_at": scraped_at,
                     }
                 )
-
             except Exception as e:
                 logger.warning(f"[CIVD] Parse error satu card: {e}")
                 continue
-
         return results
 
     async def download_civd_file(self, file_id: str) -> Optional[bytes]:
-        """
-        Download lampiran CIVD.
-        CIVD memakai POST + body JSON {"fileId": "..."}, bukan direct link.
-        """
         try:
             async with httpx.AsyncClient(
                 verify=False, follow_redirects=True, timeout=60
@@ -640,7 +618,6 @@ class CatalystScraper:
         max_pages: int = 5,
         keyword: str = "",
     ) -> List[Dict[str, Any]]:
-        """Placeholder — implementasi menyusul setelah endpoint GEP dikonfirmasi."""
         logger.info("[GEP] Scraper belum diimplementasi.")
         return []
 
@@ -653,14 +630,6 @@ class CatalystScraper:
         existing_fingerprints: set = None,
         existing_geodipa_urls: List[str] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Jalankan GeoDipa + CIVD + GEP secara concurrent.
-        Scraper yang gagal tidak menghentikan yang lain (return_exceptions=True).
-
-        Args:
-            existing_fingerprints  : Set fingerprint dari DB (untuk CIVD dedup).
-            existing_geodipa_urls  : List URL GeoDipa yang sudah di DB.
-        """
         if existing_fingerprints is None:
             existing_fingerprints = set()
         if existing_geodipa_urls is None:
@@ -695,19 +664,16 @@ if __name__ == "__main__":
     async def _test():
         bot = CatalystScraper()
 
-        # Test GeoDipa (kecil dulu)
         print("\n=== TEST GEODIPA (3 hal) ===")
         geo = await bot.scrape_geodipa(max_pages=3)
         print(f"GeoDipa: {len(geo)} tender")
 
-        # Test CIVD (tipe 1 saja, 2 hal)
         print("\n=== TEST CIVD (type=1, 2 hal) ===")
         civd = await bot.scrape_civd(max_pages=2, announcement_types=[1])
         print(f"CIVD: {len(civd)} tender")
         if civd:
             print(json.dumps(civd[0], indent=2, ensure_ascii=False))
 
-        # Save sample output
         with open("test_output.json", "w", encoding="utf-8") as f:
             json.dump({"geodipa": geo, "civd": civd}, f, indent=2, ensure_ascii=False)
         print("\nSaved → test_output.json")

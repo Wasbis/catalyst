@@ -108,13 +108,13 @@ class TenderResult(Base):
     agency = Column(String(255), nullable=True)
 
     # URL — kosong ("") untuk CIVD karena tidak ada halaman detail terpisah
-    detail_url = Column(String(500), nullable=True, index=True)
+    detail_url = Column(Text, nullable=True, index=True)
 
     # Teks gabungan untuk AI matching (title + bidang usaha + syarat, dst)
     tender_text = Column(Text, nullable=True)
 
     # Dokumen lampiran
-    doc_url = Column(String(500), nullable=True)
+    doc_url = Column(Text, nullable=True)
     doc_files_json = Column(Text, nullable=True)  # JSON list attachment
 
     # Hasil AI matching
@@ -124,9 +124,9 @@ class TenderResult(Base):
 
     # Field khusus CIVD
     announcement_type = Column(Integer, nullable=True)  # 1=PQ, 2=tender
-    announcement_type_label = Column(String(100), nullable=True)
+    announcement_type_label = Column(Text, nullable=True)  # VARCHAR(100) → Text
     golongan_usaha_json = Column(Text, nullable=True)  # JSON list
-    jenis_pengadaan = Column(String(50), nullable=True)
+    jenis_pengadaan = Column(Text, nullable=True)       # VARCHAR(50) → Text (data CIVD bisa panjang)
     bidang_usaha_json = Column(Text, nullable=True)  # JSON list
 
     # Waktu

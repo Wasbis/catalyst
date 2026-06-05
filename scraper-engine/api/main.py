@@ -1,8 +1,10 @@
+import asyncio
 import json
 import logging
 from typing import List, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -115,7 +117,8 @@ def api_match_kbli(
     - Jika `kbli_list` kosong, fallback ke Master KBLI dari database.
     """
     try:
-        masking = MaskingService(db=db) if req.use_masking else None
+        # BUG FIX: harus pakai .from_db(db), bukan MaskingService(db=db)
+        masking = MaskingService.from_db(db) if req.use_masking else None
 
         # Teks yang akan diproses AI
         text_to_process = (
@@ -188,7 +191,8 @@ async def api_extract_pdf(
             }
 
         # Mask deskripsi kalau ada data sensitif
-        masking = MaskingService(db=db)
+        # BUG FIX: harus pakai .from_db(db)
+        masking = MaskingService.from_db(db)
         for item in extracted_data:
             item["description"] = masking.mask_text(item.get("description", ""))
 
@@ -257,6 +261,8 @@ async def trigger_scrape(
             detail=f"Source tidak valid. Pilih salah satu: {valid_sources}",
         )
 
+    # FastAPI BackgroundTasks mendukung async function secara native —
+    # cukup pass function-nya (bukan di-call), dan argumennya sebagai kwargs.
     background_tasks.add_task(
         _run_scraper_task,
         source=req.source,
@@ -321,6 +327,60 @@ def get_tenders(
 
 
 # ---------------------------------------------------------------------------
+# ENDPOINTS — EXPORT JSON (untuk debug & verifikasi)
+# ---------------------------------------------------------------------------
+@app.get("/api/v1/tenders/export", tags=["scraper"])
+def export_tenders_json(
+    source: Optional[str] = None,
+    limit: int = 500,
+    db: Session = Depends(get_db),
+):
+    """
+    Export semua tender dari DB sebagai JSON file (untuk verifikasi scraping).
+    Gunakan ?source=civd atau ?source=geodipa untuk filter per platform.
+    Gunakan ?limit=N untuk batasi jumlah (default 500).
+    """
+    query = db.query(TenderResult)
+    if source:
+        query = query.filter(TenderResult.source == source)
+
+    total = query.count()
+    items = query.order_by(TenderResult.scraped_at.desc()).limit(limit).all()
+
+    data = [
+        {
+            "id": t.id,
+            "source": t.source,
+            "title": t.title,
+            "agency": t.agency,
+            "detail_url": t.detail_url,
+            "tender_text": t.tender_text,
+            "doc_url": t.doc_url,
+            "doc_files_json": t.doc_files_json,
+            "announcement_type": t.announcement_type,
+            "announcement_type_label": t.announcement_type_label,
+            "golongan_usaha_json": t.golongan_usaha_json,
+            "jenis_pengadaan": t.jenis_pengadaan,
+            "bidang_usaha_json": t.bidang_usaha_json,
+            "matched_kbli": t.matched_kbli,
+            "match_score": t.match_score,
+            "deadline_text": t.deadline_text,
+            "publish_date": t.publish_date,
+            "fingerprint": t.fingerprint,
+            "scraped_at": str(t.scraped_at),
+        }
+        for t in items
+    ]
+
+    return JSONResponse(
+        content={"total_in_db": total, "exported": len(data), "items": data},
+        headers={
+            "Content-Disposition": f'attachment; filename="tenders_export_{source or "all"}.json"'
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # ENDPOINTS — PROPOSAL GENERATOR
 # ---------------------------------------------------------------------------
 @app.post("/api/v1/generate-proposal", tags=["proposal"])
@@ -337,7 +397,8 @@ def generate_proposal(
     3. Unmask hasil akhir sebelum dikembalikan
     """
     try:
-        masking = MaskingService(db=db) if req.use_masking else None
+        # BUG FIX: harus pakai .from_db(db)
+        masking = MaskingService.from_db(db) if req.use_masking else None
 
         masked_text = masking.mask_text(req.tender_text) if masking else req.tender_text
 
@@ -420,6 +481,9 @@ async def _run_scraper_task(
 
         if source in ("geodipa", "all"):
             geo = await scraper.scrape_geodipa(existing_urls=existing_geodipa_urls)
+            logger.info(f"[TASK] scrape_geodipa returned {len(geo)} items")
+            if geo:
+                logger.info(f"[TASK] sample geodipa keys: {list(geo[0].keys())}")
             results.extend(geo)
 
         if source in ("civd", "all"):
@@ -428,20 +492,35 @@ async def _run_scraper_task(
                 keyword=keyword,
                 existing_fingerprints=existing_fingerprints,
             )
+            logger.info(f"[TASK] scrape_civd returned {len(civd)} items")
+            if civd:
+                logger.info(f"[TASK] sample civd item: {civd[0]}")
             results.extend(civd)
 
         if source in ("gep", "all"):
             gep = await scraper.scrape_gep(max_pages=max_pages, keyword=keyword)
+            logger.info(f"[TASK] scrape_gep returned {len(gep)} items")
             results.extend(gep)
 
+        logger.info(f"[TASK] TOTAL results to save: {len(results)}")
+        
         # ── Simpan ke DB ─────────────────────────────────────────────────
         saved = 0
+        skipped_fp = 0
+        skipped_url = 0
+        failed = 0
+
         if save_to_db:
-            for item in results:
+            logger.info(
+                f"[TASK] Mulai save ke DB. Total results dari scraper: {len(results)}"
+            )
+
+            for idx, item in enumerate(results):
                 fp = item.get("fingerprint")
 
                 # Skip kalau fingerprint sudah ada
                 if fp and fp in existing_fingerprints:
+                    skipped_fp += 1
                     continue
 
                 # Fallback dedup via detail_url (GeoDipa)
@@ -452,43 +531,68 @@ async def _run_scraper_task(
                         .first()
                     )
                     if exists:
+                        skipped_url += 1
                         continue
 
-                db.add(
-                    TenderResult(
-                        source=item.get("source", source),
-                        title=item.get("title", ""),
-                        agency=item.get("agency", ""),
-                        detail_url=item.get("detail_url") or "",
-                        tender_text=(
-                            item.get("tender_text") or item.get("requirement_text", "")
-                        ),
-                        doc_url=(item.get("doc_url") or item.get("document_url", "")),
-                        doc_files_json=item.get(
-                            "doc_files_json",
-                            json.dumps(item.get("doc_files", []), ensure_ascii=False),
-                        ),
-                        announcement_type=item.get("announcement_type"),
-                        announcement_type_label=item.get("announcement_type_label", ""),
-                        golongan_usaha_json=json.dumps(
-                            item.get("golongan_usaha", []), ensure_ascii=False
-                        ),
-                        jenis_pengadaan=item.get("jenis_pengadaan", ""),
-                        bidang_usaha_json=json.dumps(
-                            item.get("bidang_usaha", []), ensure_ascii=False
-                        ),
-                        deadline_text=item.get("deadline_text", ""),
-                        publish_date=item.get("publish_date", ""),
-                        fingerprint=fp,
+                # Save per-item biar error 1 row gak rollback semua
+                try:
+                    db.add(
+                        TenderResult(
+                            source=item.get("source", source),
+                            title=item.get("title", ""),
+                            agency=item.get("agency", ""),
+                            detail_url=item.get("detail_url") or "",
+                            tender_text=(
+                                item.get("tender_text")
+                                or item.get("requirement_text", "")
+                            ),
+                            doc_url=(
+                                item.get("doc_url") or item.get("document_url", "")
+                            ),
+                            doc_files_json=item.get(
+                                "doc_files_json",
+                                json.dumps(
+                                    item.get("doc_files", []), ensure_ascii=False
+                                ),
+                            ),
+                            announcement_type=item.get("announcement_type"),
+                            announcement_type_label=item.get(
+                                "announcement_type_label", ""
+                            ),
+                            golongan_usaha_json=json.dumps(
+                                item.get("golongan_usaha", []), ensure_ascii=False
+                            ),
+                            jenis_pengadaan=item.get("jenis_pengadaan", ""),
+                            bidang_usaha_json=json.dumps(
+                                item.get("bidang_usaha", []), ensure_ascii=False
+                            ),
+                            deadline_text=item.get("deadline_text", ""),
+                            publish_date=item.get("publish_date", ""),
+                            fingerprint=fp,
+                        )
                     )
-                )
+                    db.commit()  # commit per-item
 
-                if fp:
-                    existing_fingerprints.add(fp)
-                saved += 1
+                    if fp:
+                        existing_fingerprints.add(fp)
+                    saved += 1
+                    logger.info(f"[TASK] #{idx} SAVED: {item.get('title', '')[:60]}")
 
-            db.commit()
-            logger.info(f"[TASK] Saved {saved} tender baru ke DB.")
+                except Exception as item_err:
+                    failed += 1
+                    db.rollback()
+                    logger.error(
+                        f"[TASK] #{idx} FAILED: {item_err} | "
+                        f"title={item.get('title', '')[:60]} | "
+                        f"source={item.get('source')}"
+                    )
+                    logger.error(f"[TASK] #{idx} item keys: {list(item.keys())}")
+
+            logger.info(
+                f"[TASK] DONE. Total={len(results)}, "
+                f"Saved={saved}, SkippedFP={skipped_fp}, "
+                f"SkippedURL={skipped_url}, Failed={failed}"
+            )
 
         _scraper_status["last_count"] = saved
         _scraper_status["last_run"] = datetime.now().isoformat()
