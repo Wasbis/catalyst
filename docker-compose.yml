@@ -19,10 +19,8 @@ services:
       context: ./scraper-engine
       dockerfile: Dockerfile
     container_name: catalyst_scraper_engine
-    depends_on:
-      - postgres-db
     environment:
-      - DATABASE_URL=postgresql://catalyst_user:supersecretpassword@postgres-db:5432/catalyst_db
+      - DATABASE_URL=postgresql://diya-catalyst:Abid090300@100.112.188.84:5432/catalystDB
     ports:
       - "8000:8000"
     restart: unless-stopped
