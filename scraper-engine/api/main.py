@@ -1,7 +1,10 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+
+WIB = timezone(timedelta(hours=7))
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
@@ -26,6 +29,16 @@ from api.models.database import (
 # ---------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _parse_scraped_at(value: str | None) -> datetime:
+    """Parse scraped_at ISO string dari scraper → datetime. Fallback ke now() WIB."""
+    if value:
+        try:
+            return datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            pass
+    return datetime.now(WIB)
 
 # ---------------------------------------------------------------------------
 app = FastAPI(
@@ -85,6 +98,7 @@ _scraper_status: dict = {
     "last_count": 0,
     "last_source": None,
     "last_error": None,
+    "last_stats": None,
 }
 
 
@@ -569,6 +583,7 @@ async def _run_scraper_task(
                             deadline_text=item.get("deadline_text", ""),
                             publish_date=item.get("publish_date", ""),
                             fingerprint=fp,
+                            scraped_at=_parse_scraped_at(item.get("scraped_at")),
                         )
                     )
                     db.commit()  # commit per-item
@@ -596,6 +611,13 @@ async def _run_scraper_task(
 
         _scraper_status["last_count"] = saved
         _scraper_status["last_run"] = datetime.now().isoformat()
+        _scraper_status["last_stats"] = {
+            "total_from_scraper": len(results),
+            "saved": saved,
+            "skipped_duplicate_fingerprint": skipped_fp,
+            "skipped_duplicate_url": skipped_url,
+            "failed": failed,
+        }
 
     except Exception as e:
         logger.error(f"[TASK] Scraper error: {e}", exc_info=True)

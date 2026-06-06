@@ -1,28 +1,28 @@
 # 📋 CATALYST — TODO LIST
 
-> Diperbarui: 2026-06-04 | Selaras dengan PRD v1.0 & kondisi aktual codebase
+> Diperbarui: 2026-06-05 | Audit aktual vs PRD v1.0
+>
+> **Legenda:** ✅ Selesai · ❌ Belum · ⚠️ Parsial/Placeholder
 
 ---
 
-## 🗺️ STATUS PLATFORM SCRAPER (Realita di scraper.py)
+## 🗺️ STATUS PLATFORM SCRAPER
 
-| Platform | PRD | Implementasi di `scraper.py` | Status |
+| Platform | PRD | Implementasi | Status |
 |---|---|---|---|
-| **GeoDipa** | Sekunder | ✅ Lengkap (`scrape_geodipa` + detail page) | Siap pakai |
-| **CIVD SKK Migas** | Utama | ✅ Lengkap (`scrape_civd`, AJAX pagination, 3 tipe) | Siap pakai |
-| **GEP (Smart GEP)** | — | ⚠️ Placeholder kosong, return `[]` | Belum implementasi |
-| **LPSE** | Utama | ❌ Tidak ada sama sekali di `scraper.py` | Harus dibuat |
-| **Input Manual** | Pelengkap | ❌ Belum ada endpoint/UI | Harus dibuat |
-
-> **Catatan LPSE:** PRD menjadikan LPSE sebagai prioritas utama ("setiap 6 jam"), tapi belum ada di scraper sama sekali. Perlu riset dulu: struktur URL `lpse.*.go.id` dan kemungkinan butuh Playwright (bukan httpx biasa) karena JS-rendered.
+| **GeoDipa** | Sekunder | `scrape_geodipa` + detail page | ✅ Selesai — 2026-06-04 |
+| **CIVD SKK Migas** | Utama | `scrape_civd`, AJAX pagination, 3 tipe | ✅ Selesai — 2026-06-04 |
+| **GEP (Smart GEP)** | — | Placeholder kosong, return `[]` | ⚠️ Belum implementasi |
+| **LPSE** | Utama | Tidak ada sama sekali | ❌ Harus dibuat |
+| **Input Manual** | Pelengkap | Belum ada endpoint/UI | ❌ Harus dibuat |
 
 ---
 
-## ⚡ FOKUS SEKARANG — APP 1: TENDER PLATFORM
+## ⚡ APP 1 — TENDER PLATFORM
 
 ---
 
-### 🔴 TAHAP 1 — Fondasi (Kerjakan duluan, semua yang lain bergantung ini)
+### 🔴 TAHAP 1 — Fondasi
 
 #### 1.1 Setup Layout & Navigasi Dashboard
 - [ ] Buat `catalyst-scout/src/app/(dashboard)/layout.jsx` — shell dashboard dengan Sidebar + Topbar
@@ -31,107 +31,126 @@
 - [ ] Buat halaman root `/` yang redirect langsung ke `/tenders`
 
 #### 1.2 Fix Docker & Konfigurasi
-- [ ] Fix typo di `docker-compose.yml`: context scraper pakai `./scraper-engine` tapi folder aslinya `./scrapper-engine`
-- [ ] Tambahkan service `catalyst-scout` (Next.js) ke `docker-compose.yml` untuk production nanti
+- [x] Fix typo di `docker-compose.yml`: context scraper ✅ — 2026-06-05 (`./scraper-engine` sudah benar)
+- [ ] Tambahkan service `catalyst-scout` (Next.js) ke `docker-compose.yml`
 
 ---
 
-### 🟠 TAHAP 2 — Koneksi Frontend ↔ Backend (API Glue)
+### 🟠 TAHAP 2 — Koneksi Frontend ↔ Backend
 
-#### 2.1 API Routes Next.js (semua file masih kosong)
-- [ ] Isi `api/proxy-scraper/route.js` — proxy `POST /api/v1/scrape` dan `GET /api/v1/scrape/status` ke Python backend
-- [ ] Isi `api/ai-proposal/route.js` — proxy `POST /api/v1/generate-proposal` ke Python backend
-- [ ] Buat `api/tenders/route.js` — proxy `GET /api/v1/tenders` (list + filter)
-- [ ] Buat `api/tenders/[id]/route.js` — proxy `GET /api/v1/tenders/{id}` (detail satu tender)
+#### 2.1 API Routes Next.js
+- [ ] Isi `api/proxy-scraper/route.js` — file ada tapi **0 byte**
+- [ ] Isi `api/ai-proposal/route.js` — file ada tapi **0 byte**
+- [ ] Buat `api/tenders/route.js` — belum ada file
+- [ ] Buat `api/tenders/[id]/route.js` — belum ada file
 
-#### 2.2 Server Actions (semua file masih kosong)
-- [ ] Isi `actions/tenderActions.js`:
-  - `getTenders({ source, status, page, limit })` — query Prisma ke `TenderResult`
-  - `promoteTender(tenderResultId, data)` — promote `TenderResult` → `Tender` (status: `new_lead`)
-  - `updateTenderStatus(tenderId, status)` — update status: `new_lead → evaluating → bidding → won/lost`
-  - `addTenderNote(tenderId, noteText)` — tambah catatan ke tender *(PRD RF-T-010)*
-- [ ] Isi `actions/kbliActions.js`:
-  - `getKbliList(search)` — query `MasterKbli` via Prisma
+#### 2.2 Server Actions
+- [ ] Isi `actions/tenderActions.js` — file ada tapi **0 byte**
+  - `getTenders`, `promoteTender`, `updateTenderStatus`, `addTenderNote`
+- [ ] Isi `actions/kbliActions.js` — file ada tapi **0 byte**
+  - `getKbliList(search)`
+- [ ] Isi `actions/aiActions.js` — file ada tapi **0 byte**
 
 #### 2.3 Prisma / Database
-- [ ] Jalankan `prisma db push` untuk sync schema ke database (semua model baru belum di-push)
-- [ ] Buat seed data `MasterKbli` — tanpa ini, fitur KBLI matching tidak bisa jalan
-- [ ] Buat seed data `DataMasking` — keyword sensitif awal (nama client, internal names)
+- [ ] Isi `src/lib/prisma.js` — file ada tapi **0 byte** (Prisma client singleton)
+- [ ] Jalankan `prisma db push` — schema sudah lengkap tapi belum di-push ke DB
+- [ ] Buat seed data `MasterKbli`
+- [ ] Buat seed data `DataMasking`
 
 ---
 
-### 🟡 TAHAP 3 — Halaman Tenders (UI Utama — PRD Section 2.3)
+### 🟡 TAHAP 3 — Halaman Tenders
 
-#### 3.1 Halaman List Tenders `/tenders` *(PRD RF-T-002, RF-T-003, RF-T-009)*
-- [ ] Tabel/list tender dengan kolom: source, title, agency, matched KBLI, score, deadline, status
-- [ ] Filter bar: by source (geodipa/civd/lpse), by status, by skor minimum, by keyword
-- [ ] Badge skor dengan warna: 🟢 ≥70 (Kejar), 🟡 40-69 (Tinjau), 🔴 <40 (Lewati) *(PRD RF-T-007)*
-- [ ] Tombol **"Trigger Scrape"** — pilih source, klik → call proxy-scraper API *(PRD RF-T-002)*
-- [ ] Status bar scraper real-time (polling): running / last run / jumlah baru *(PRD RF-T-012)*
-- [ ] Tombol **"Promote ke Lead"** pada baris `TenderResult` yang belum dipromote *(PRD RF-T-011)*
+#### 3.1 Halaman List `/tenders`
+- [ ] Tabel tender: source, title, agency, KBLI, score, deadline, status — sekarang placeholder `<div>`
+- [ ] Filter bar: by source, status, skor minimum, keyword
+- [ ] Badge skor: 🟢 ≥70 · 🟡 40-69 · 🔴 <40
+- [ ] Tombol "Trigger Scrape" → call proxy-scraper API
+- [ ] Status bar scraper real-time (polling)
+- [ ] Tombol "Promote ke Lead"
 
-#### 3.2 Papan Kanban Tenders *(PRD RF-T-009)*
-- [ ] Kanban dengan kolom: `Ditemukan → Ditinjau → Dikejar → Diserahkan → Menang / Kalah / Batal`
-- [ ] Drag-and-drop untuk update status *(PRD KP-T-005)*
-- [ ] Toggle view antara List View dan Kanban View
+#### 3.2 Papan Kanban Tenders
+- [ ] Kanban: `Ditemukan → Ditinjau → Dikejar → Diserahkan → Menang/Kalah/Batal`
+- [ ] Drag-and-drop update status
+- [ ] Toggle List View / Kanban View
 
-#### 3.3 Halaman Detail Tender `/tenders/[id]` *(PRD RF-T-010)*
-- [ ] Buat `tenders/[id]/page.jsx` — sekarang folder ada tapi tidak punya `page.jsx`
-- [ ] Tampilkan: judul, agency, sumber, requirement text, doc attachments, KBLI match + score
-- [ ] Panel **Catatan** — tambah/lihat catatan teks per tender *(PRD RF-T-010)*
+#### 3.3 Halaman Detail `/tenders/[id]`
+- [ ] Buat `tenders/[id]/page.jsx` — **folder ada, file tidak ada**
+- [ ] Tampilkan: judul, agency, sumber, requirement text, KBLI match + score
+- [ ] Panel Catatan per tender
 - [ ] Riwayat perubahan status
-- [ ] Tombol **"Konversi ke Proyek"** muncul jika status = `won` *(PRD RF-T-011)*
+- [ ] Tombol "Konversi ke Proyek" jika status = `won`
 
-#### 3.4 Input Tender Manual *(PRD RF-T-014)*
-- [ ] Form modal/drawer untuk input tender manual (dari luar portal digital)
-- [ ] Field: judul, agency, sumber, requirement text, deadline, estimasi budget, URL (opsional)
+#### 3.4 Input Tender Manual
+- [ ] Form modal/drawer untuk input tender manual
+- [ ] Field: judul, agency, sumber, requirement text, deadline, budget, URL (opsional)
 
 ---
 
 ### 🔵 TAHAP 4 — Halaman KBLI `/kbli`
-
-- [ ] Tabel daftar KBLI dari `MasterKbli` database dengan search by kode/deskripsi
-- [ ] Tambah/edit/nonaktifkan KBLI langsung dari UI
-- [ ] Upload NIB PDF → ekstrak KBLI baru via `/api/v1/extract-pdf` *(sudah ada di Python)*
+- [ ] Tabel KBLI dari database — sekarang placeholder `<div>`
+- [ ] Tambah/edit/nonaktifkan KBLI dari UI
+- [ ] Upload NIB PDF → ekstrak KBLI via `/api/v1/extract-pdf`
 
 ---
 
-### 🟣 TAHAP 5 — Perbaikan Backend Python (Tender-related)
+### 🟣 TAHAP 5 — Perbaikan Backend Python
 
-#### 5.1 LPSE Scraper *(PRD RF-T-001 — PRIORITAS UTAMA)*
-- [ ] **Riset dulu:** cek struktur HTML `lpse.lkpp.go.id` — apakah butuh Playwright atau cukup httpx?
-- [ ] Implementasi `scrape_lpse()` di `scraper.py` — multi-instansi (minimal 1 LPSE dulu)
-- [ ] Daftarkan `lpse` ke `main.py`: tambah ke `valid_sources` dan `_run_scraper_task`
-- [ ] Update `CIVD_ANNOUNCEMENT_TYPES` — konfirmasi type=2 dan type=3 via browser Network tab
+#### 5.1 LPSE Scraper *(PRD: PRIORITAS UTAMA)*
+- [ ] Riset struktur HTML `lpse.lkpp.go.id` — butuh Playwright atau cukup httpx?
+- [ ] Implementasi `scrape_lpse()` di `scraper.py`
+- [ ] Daftarkan `lpse` ke `valid_sources` dan `_run_scraper_task` di `main.py`
+- [ ] Update `CIVD_ANNOUNCEMENT_TYPES` — konfirmasi type=2 dan type=3 via Network tab
 
 #### 5.2 Penjadwalan Otomatis *(PRD RF-T-001)*
-- [ ] Implementasi scheduler (APScheduler atau cron): GeoDipa tiap 24 jam, CIVD tiap 12 jam, LPSE tiap 6 jam
-- [ ] Atau: setup cron job eksternal yang hit endpoint `POST /api/v1/scrape`
+- [ ] Implementasi scheduler — GeoDipa tiap 24 jam, CIVD tiap 12 jam, LPSE tiap 6 jam
+- [ ] Atau: setup cron job eksternal yang hit `POST /api/v1/scrape`
 
-#### 5.3 Endpoint yang Kurang
-- [ ] Tambah `GET /api/v1/tenders/{id}` — detail satu tender (sekarang hanya ada list)
-- [ ] Tambah `PUT /api/v1/tenders/{id}/status` — update status dari frontend
-- [ ] Tambah `POST /api/v1/tenders` — input manual tender *(PRD RF-T-014)*
-- [ ] Tambah `GET /api/v1/scraper/log` — riwayat run scraper per platform *(PRD RF-T-012)*
+#### 5.3 Endpoint yang Kurang di Backend
+- [ ] `GET /api/v1/tenders/{id}` — detail satu tender (sekarang hanya ada list)
+- [ ] `PUT /api/v1/tenders/{id}/status` — update status dari frontend
+- [ ] `POST /api/v1/tenders` — input manual tender
+- [ ] `GET /api/v1/scraper/log` — riwayat run per platform
 
 #### 5.4 Notifikasi Tender Skor Tinggi *(PRD RF-T-008)*
-- [ ] Implementasi notifikasi saat tender baru dengan skor ≥70 ditemukan
-- [ ] Simpan ke tabel `Notification` (sudah ada di schema Prisma)
+- [ ] Trigger notifikasi saat tender baru skor ≥70
+- [ ] Simpan ke tabel `Notification` (sudah ada di schema)
 - [ ] Kirim ke frontend via polling atau WebSocket
 
 ---
 
-### 🟢 TAHAP 6 — Halaman Proposal Generator `/tenders/[id]/proposal` *(PRD Phase 2)*
+### 🟢 TAHAP 6 — Proposal Generator *(PRD Phase 2)*
 
-> **Prasyarat:** TAHAP 1–4 harus sudah stabil dulu
+> Prasyarat: TAHAP 1–4 harus stabil dulu
 
-- [ ] Form input: pilih template + klik Generate
-- [ ] Tampilkan proposal dalam blok-blok yang bisa diedit per-section
-- [ ] Tombol **"Generate"** → call AI proposal agent (async, tampilkan loading)
-- [ ] Tombol **"Download .docx"** — **butuh implementasi `docx_generator.py` yang masih 0 byte!**
-- [ ] Implementasi `docx_generator.py` menggunakan `python-docx`: isi template .docx dari proposal blocks
-- [ ] Upload template .docx via Settings, simpan path-nya *(PRD RF-AI-001)*
-- [ ] Riwayat proposal terhubung ke tender *(PRD RF-AI-008)*
+- [ ] Form: pilih template + klik Generate
+- [ ] Tampilkan proposal dalam blok yang bisa diedit per-section
+- [ ] Tombol "Generate" → call AI proposal agent (async)
+- [ ] Tombol "Download .docx"
+- [ ] **Implementasi `docx_generator.py` — sekarang 0 byte!** Pakai `python-docx`
+- [ ] Upload template .docx via Settings
+- [ ] Riwayat proposal terhubung ke tender
+
+---
+
+## ✅ SUDAH SELESAI (Log)
+
+| Tanggal | Yang Dikerjakan |
+|---|---|
+| 2026-05-06 | Inisialisasi monorepo Catalyst |
+| 2026-05-08 | Merge catalyst-scout ke dalam monorepo |
+| 2026-06-04 | Prisma schema lengkap — semua model (User, Tender, TenderResult, KBLI, Notification, Proposal, dll) |
+| 2026-06-04 | GeoDipa scraper (`scrape_geodipa` + detail page) |
+| 2026-06-04 | CIVD scraper (`scrape_civd`, AJAX pagination, 3 tipe announcement) |
+| 2026-06-04 | AI Matcher (`ai_matcher.py`) |
+| 2026-06-04 | Masking Service (`masking_services.py`) — 215 baris, lengkap |
+| 2026-06-04 | PDF Extractor (`pdf_extractor.py`) |
+| 2026-06-04 | AI Proposal Agent logic (`ai_proposal_agent.py`) |
+| 2026-06-04 | Database model (`database.py` — SQLAlchemy + TenderResult) |
+| 2026-06-04 | Struktur file frontend dibuat (pages, actions, routes) — **tapi semua masih kosong** |
+| 2026-06-05 | Fix typo `docker-compose.yml`: `./scrapper-engine` → `./scraper-engine` |
+| 2026-06-05 | Test scraping (`test_scrape.py`, `test_save_db.py`) |
+| 2026-06-05 | Export CIVD (`export_civd.py`) |
 
 ---
 
@@ -139,43 +158,40 @@
 
 > Kerjakan setelah semua TAHAP 1–5 App 1 selesai dan stabil
 
-- [ ] **TAHAP A:** Auth & RBAC — model `User` sudah ada di schema, belum ada auth layer (NextAuth/JWT)
+- [ ] **TAHAP A:** Auth & RBAC — model `User` sudah ada di schema, belum ada auth layer
 - [ ] **TAHAP B:** App 2 — Project Management (Kanban, task, milestone, workload)
 - [ ] **TAHAP C:** App 2 — Document Management (upload, versioning, MinIO)
 - [ ] **TAHAP D:** App 2 — Client Portal (token akses per-proyek, MoM, sign-off)
-- [ ] **TAHAP E:** Integrasi: Tender Won → Proyek Baru di App 2 *(PRD Section 4.1)*
+- [ ] **TAHAP E:** Integrasi: Tender Won → Proyek Baru di App 2
 - [ ] **TAHAP F:** App 2 Phase 2 — Analytics, notifikasi email, Gantt Chart
-- [ ] **TAHAP G:** App 2 Phase 3 — RAG Knowledge Base (butuh 3-6 bulan data dulu)
+- [ ] **TAHAP G:** App 2 Phase 3 — RAG Knowledge Base
 
 ---
 
-## ✅ PRE-PRODUCTION CHECKLIST *(dari guideline.md)*
+## 📌 STATUS RINGKAS CODEBASE
 
-- [ ] Fitur **Data Masking** berjalan normal di lokal — cek sebelum push ke production
-- [ ] File `.env` tidak ter-commit ke Git
-- [ ] Update `requirements.txt`: `pip freeze > requirements.txt` di `scraper-engine`
-- [ ] Jalankan `npm run build` di `catalyst-scout` — pastikan zero build error
-- [ ] Tambahkan service `catalyst-scout` ke `docker-compose.yml`
-- [ ] `docker exec -it catalyst-scout-container npx prisma db push` saat pertama deploy
-
----
-
-## 📌 RINGKASAN STATUS CODEBASE
-
-| Komponen | Kondisi Sekarang |
+| Komponen | Status |
 |---|---|
-| Backend Python — GeoDipa scraper | ✅ Lengkap & siap |
-| Backend Python — CIVD scraper | ✅ Lengkap & siap |
-| Backend Python — GEP scraper | ⚠️ Placeholder, belum implementasi |
-| Backend Python — LPSE scraper | ❌ Belum ada, harus dibuat (PRD: prioritas utama) |
-| Backend Python — AI matcher & masking | ✅ Lengkap |
-| Backend Python — Proposal agent | ✅ Logic ada, tapi `docx_generator.py` kosong |
-| Database schema (Prisma) | ✅ Lengkap & well-designed, belum di-push ke DB |
-| Docker compose | ⚠️ Ada tapi typo path + belum include Next.js |
-| API Routes Next.js | ❌ Semua file kosong |
-| Server Actions Next.js | ❌ Semua file kosong |
-| UI — Layout dashboard | ❌ Belum ada |
-| UI — Halaman Tenders | ❌ Masih placeholder |
-| UI — Halaman KBLI | ❌ Masih placeholder |
-| UI — Proposal Generator | ❌ Masih placeholder |
+| Backend — GeoDipa scraper | ✅ Selesai — 2026-06-04 |
+| Backend — CIVD scraper | ✅ Selesai — 2026-06-04 |
+| Backend — GEP scraper | ⚠️ Placeholder |
+| Backend — LPSE scraper | ❌ Belum ada |
+| Backend — AI matcher | ✅ Selesai — 2026-06-04 |
+| Backend — Masking service | ✅ Selesai — 2026-06-04 |
+| Backend — AI Proposal agent | ✅ Logic ada — 2026-06-04 |
+| Backend — `docx_generator.py` | ❌ 0 byte |
+| Backend — Scheduler otomatis | ❌ Belum ada |
+| Backend — endpoint `/tenders/{id}` | ❌ Belum ada |
+| Backend — endpoint status update | ❌ Belum ada |
+| Database schema (Prisma) | ✅ Lengkap — 2026-06-04, belum `db push` |
+| Docker compose — path fix | ✅ Fix — 2026-06-05 |
+| Docker compose — Next.js service | ❌ Belum |
+| API Routes Next.js | ❌ File ada, semua 0 byte |
+| Server Actions Next.js | ❌ File ada, semua 0 byte |
+| `lib/prisma.js` | ❌ 0 byte |
+| UI — Layout dashboard + Sidebar | ❌ Belum ada |
+| UI — Halaman Tenders | ❌ Placeholder |
+| UI — Halaman Detail Tender | ❌ File tidak ada |
+| UI — Halaman KBLI | ❌ Placeholder |
+| UI — Proposal Generator | ❌ Placeholder |
 | Auth / Login | ❌ Belum ada |
