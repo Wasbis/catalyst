@@ -552,6 +552,7 @@ class CIVDScraper:
         keyword: str = "",
         announcement_types: List[int] = None,
         existing_fingerprints: set = None,
+        on_progress: Optional[Any] = None,
     ) -> Dict[str, Any]:
         if announcement_types is None:
             announcement_types = list(CIVD_ANNOUNCEMENT_TYPES.keys())
@@ -584,6 +585,16 @@ class CIVDScraper:
                 logger.info(f"[CIVD] Scraping ann_type={ann_type} ({type_label})")
                 logger.info(f"{'='*50}")
 
+                if on_progress:
+                    on_progress({
+                        "source": "civd",
+                        "ann_type": ann_type,
+                        "ann_type_label": type_label,
+                        "page": 0,
+                        "total_pages": None,
+                        "found_so_far": len(all_results),
+                    })
+
                 # --- Page 1 ---
                 first_html = await self._fetch_page(
                     client, ajax_url, ann_type, 1, keyword, semaphore
@@ -614,6 +625,16 @@ class CIVDScraper:
                     f"will_fetch_up_to={actual_max} | "
                     f"pagination_param={pagination_param}"
                 )
+
+                if on_progress:
+                    on_progress({
+                        "source": "civd",
+                        "ann_type": ann_type,
+                        "ann_type_label": type_label,
+                        "page": 1,
+                        "total_pages": actual_max,
+                        "found_so_far": len(all_results),
+                    })
 
                 # Parse page 1
                 cards_p1 = self._parse_cards(
@@ -669,6 +690,16 @@ class CIVDScraper:
                                 all_results.append(item)
                                 existing_fingerprints.add(item["fingerprint"])
                                 stats["new"] += 1
+
+                        if on_progress:
+                            on_progress({
+                                "source": "civd",
+                                "ann_type": ann_type,
+                                "ann_type_label": type_label,
+                                "page": p,
+                                "total_pages": actual_max,
+                                "found_so_far": len(all_results),
+                            })
                 else:
                     # ── Normal mode: concurrent fetch semua page sekaligus ──
                     pages_html = await asyncio.gather(
@@ -697,6 +728,16 @@ class CIVDScraper:
                                 all_results.append(item)
                                 existing_fingerprints.add(item["fingerprint"])
                                 stats["new"] += 1
+
+                    if on_progress:
+                        on_progress({
+                            "source": "civd",
+                            "ann_type": ann_type,
+                            "ann_type_label": type_label,
+                            "page": actual_max,
+                            "total_pages": actual_max,
+                            "found_so_far": len(all_results),
+                        })
 
         # Assign sequential global IDs starting from 1
         for idx, item in enumerate(all_results, start=1):

@@ -5,17 +5,19 @@ Strategi naming:
   - Tabel MasterKbli & DataMasking sudah ada di DB via Prisma (camelCase columns).
     SQLAlchemy memetakan ke Python attribute snake_case menggunakan
     Column("namaKolomAsli", ...) sehingga tidak perlu migration data.
-  - Tabel TenderResult adalah tabel baru murni Python — pakai snake_case penuh.
+  - Tabel TenderResult & ScrapingJob adalah tabel baru murni Python — pakai snake_case penuh.
 """
 
 import os
 from dotenv import load_dotenv
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
-    Float,
+    ForeignKey,
     Integer,
     String,
     Text,
@@ -36,11 +38,9 @@ if not DATABASE_URL:
 
 engine = create_engine(
     DATABASE_URL,
-    # SQLite butuh flag ini agar bisa dipakai lintas thread (dev only)
     connect_args=(
         {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
     ),
-    # Connection pool — turunkan kalau pakai SQLite, naikkan untuk Postgres
     pool_pre_ping=True,
 )
 
@@ -50,8 +50,7 @@ Base = declarative_base()
 
 # ---------------------------------------------------------------------------
 # MasterKbli
-# Tabel ini sudah dibuat Prisma → pakai nama kolom asli (camelCase) di DB,
-# tapi expose sebagai snake_case di Python.
+# Tabel ini sudah dibuat Prisma → pakai nama kolom asli (camelCase) di DB.
 # ---------------------------------------------------------------------------
 class MasterKbli(Base):
     __tablename__ = "MasterKbli"
@@ -70,8 +69,6 @@ class MasterKbli(Base):
 # ---------------------------------------------------------------------------
 # DataMasking
 # Tabel ini sudah dibuat Prisma → sama, pakai alias kolom.
-# id di Prisma bertipe String (CUID); di sini kita biarkan String
-# agar tidak perlu migration, tapi tambah auto-generate default di level app.
 # ---------------------------------------------------------------------------
 class DataMasking(Base):
     __tablename__ = "DataMasking"
@@ -80,14 +77,8 @@ class DataMasking(Base):
     keyword = Column("keyword", String(500), unique=True, nullable=False)
     replacement = Column("replacement", String(500), nullable=False)
     category = Column("category", String(100), nullable=True)
-
-    # Kolom baru — tambahkan via Prisma migration atau Alembic kalau belum ada
-    is_regex = Column(
-        "isRegex", Boolean, default=False, nullable=False, server_default="false"
-    )
-    is_active = Column(
-        "isActive", Boolean, default=True, nullable=False, server_default="true"
-    )
+    is_regex = Column("isRegex", Boolean, default=False, nullable=False, server_default="false")
+    is_active = Column("isActive", Boolean, default=True, nullable=False, server_default="true")
     created_at = Column("createdAt", DateTime(timezone=True), server_default=func.now())
 
     def __repr__(self) -> str:
@@ -95,52 +86,87 @@ class DataMasking(Base):
 
 
 # ---------------------------------------------------------------------------
+# ScrapingJob
+# Log setiap job scraping — untuk RF-T-012 (logging) dan RF-T-013 (deteksi 2x gagal).
+# Harus didefinisikan sebelum TenderResult karena TenderResult punya FK ke sini.
+# ---------------------------------------------------------------------------
+class ScrapingJob(Base):
+    __tablename__ = "scraping_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source = Column(String(50), nullable=False, index=True)     # civd|lpse|geodipa
+    trigger = Column(String(20), default="scheduled")           # scheduled|manual
+    status = Column(String(20), default="running", nullable=False)  # running|success|failed
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    tenders_found = Column(Integer, default=0)
+    tenders_new = Column(Integer, default=0)
+    tenders_updated = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    # RF-T-013: hitung berapa kali gagal berturut-turut per source
+    consecutive_failures = Column(Integer, default=0, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<ScrapingJob [{self.source}] {self.status} @ {self.started_at}>"
+
+
+# ---------------------------------------------------------------------------
 # TenderResult
-# Tabel baru — murni Python/SQLAlchemy, tidak ada di Prisma schema.
+# Tabel baru murni Python/SQLAlchemy — tidak ada di Prisma schema.
 # Semua nama pakai snake_case.
+#
+# CATATAN MIGRASI: kalau tabel tender_results sudah ada di DB dengan schema lama,
+# jalankan: DROP TABLE tender_results; lalu restart server agar dibuat ulang.
 # ---------------------------------------------------------------------------
 class TenderResult(Base):
     __tablename__ = "tender_results"
 
+    # === Identity ===
     id = Column(Integer, primary_key=True, index=True)
-    source = Column(String(50), nullable=False, index=True)  # geodipa|civd|gep
+    source = Column(String(50), nullable=False, index=True)     # civd|lpse|geodipa
+
+    # === Core fields (RF-T-003) ===
     title = Column(Text, nullable=False)
     agency = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    budget_estimated = Column(BigInteger, nullable=True)         # RF-T-003, RF-T-005
+    deadline_text = Column(String(100), nullable=True)           # raw string dari scraper
+    deadline_date = Column(Date, nullable=True)                  # parsed, untuk sort/filter/change detection
+    source_url = Column(Text, nullable=True)                     # URL halaman detail (kosong untuk CIVD)
 
-    # URL — kosong ("") untuk CIVD karena tidak ada halaman detail terpisah
-    detail_url = Column(Text, nullable=True, index=True)
+    # === Deduplication (RF-T-004) ===
+    # MD5 hash dari kombinasi unik per source (title+agency+type untuk CIVD)
+    fingerprint = Column(String(64), unique=True, index=True, nullable=False)
 
-    # Teks gabungan untuk AI matching (title + bidang usaha + syarat, dst)
-    tender_text = Column(Text, nullable=True)
+    # === AI Matching & Scoring (RF-T-006, RF-T-007) ===
+    tender_text = Column(Text, nullable=True)                    # teks gabungan untuk embedding
+    kbli_codes_json = Column(Text, nullable=True)               # JSON list: kode KBLI extracted dari teks tender
+    kbli_matched_json = Column(Text, nullable=True)             # JSON list: KBLI yang cocok dengan profil Cliste
+    match_score = Column(Integer, nullable=True)                 # 0-100
+    recommendation = Column(String(10), nullable=True)           # KEJAR|TINJAU|LEWATI
 
-    # Dokumen lampiran
-    doc_url = Column(Text, nullable=True)
-    doc_files_json = Column(Text, nullable=True)  # JSON list attachment
+    # === Status Manajemen (RF-T-009) ===
+    status = Column(String(20), default="DITEMUKAN", nullable=False)
+    # DITEMUKAN → DITINJAU → DIKEJAR → DISERAHKAN → MENANG / KALAH / BATAL
 
-    # Hasil AI matching
-    matched_kbli = Column(String(10), nullable=True)
-    match_score = Column(Float, nullable=True)
-    is_masked = Column(Boolean, default=False)
+    # === User Actions (RF-T-010, RF-T-011) ===
+    notes = Column(Text, nullable=True)
+    converted_to_project = Column(Boolean, default=False, nullable=False)
+    project_id = Column(Integer, nullable=True)                  # ref ke project App 2 setelah konversi
 
-    # Field khusus CIVD
-    announcement_type = Column(Integer, nullable=True)  # 1=PQ, 2=tender
-    announcement_type_label = Column(Text, nullable=True)  # VARCHAR(100) → Text
-    golongan_usaha_json = Column(Text, nullable=True)  # JSON list
-    jenis_pengadaan = Column(Text, nullable=True)       # VARCHAR(50) → Text (data CIVD bisa panjang)
-    bidang_usaha_json = Column(Text, nullable=True)  # JSON list
+    # === Attachments ===
+    doc_files_json = Column(Text, nullable=True)                 # JSON list of {file_id, file_name, download_url, ...}
 
-    # Waktu
-    deadline_text = Column(String(100), nullable=True)
-    publish_date = Column(String(50), nullable=True)
+    # === Source-specific metadata ===
+    # Semua field yang spesifik per platform masuk sini sebagai JSON.
+    # Contoh CIVD: {announcement_type, announcement_type_label, golongan_usaha, jenis_pengadaan, bidang_usaha}
+    source_metadata_json = Column(Text, nullable=True)
+    is_masked = Column(Boolean, default=False, nullable=False)
 
-    # Dedup — MD5 hash dari title+agency+source/type
-    fingerprint = Column(String(64), unique=True, index=True, nullable=True)
-
-    # Audit
-    scraped_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    # === Audit ===
+    scraped_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    scraping_job_id = Column(Integer, ForeignKey("scraping_jobs.id"), nullable=True)
 
     def __repr__(self) -> str:
         return f"<TenderResult [{self.source}] {self.title[:50]}>"
@@ -155,8 +181,8 @@ def init_db() -> None:
     Dipanggil di startup event FastAPI.
 
     Catatan: MasterKbli dan DataMasking sudah dibuat Prisma,
-    jadi Base.metadata.create_all hanya akan membuat TenderResult
-    (dan tabel lain yang belum ada) tanpa menyentuh yang sudah ada.
+    jadi Base.metadata.create_all hanya akan membuat tabel baru
+    (TenderResult, ScrapingJob) tanpa menyentuh yang sudah ada.
     """
     Base.metadata.create_all(bind=engine)
 

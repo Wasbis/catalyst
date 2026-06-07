@@ -1,11 +1,5 @@
 FROM python:3.10-slim
 
-# Install system dependencies (dibutuhkan untuk build beberapa package Python)
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /code
 
 # Copy requirements dan install
@@ -16,7 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 # Copy seluruh source code
-COPY ./app /code/app
+COPY ./api /code/api
 
 # Jalankan Uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+

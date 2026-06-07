@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date as date_type, timezone, timedelta
 from typing import List, Optional
 
 WIB = timezone(timedelta(hours=7))
@@ -93,12 +93,23 @@ class ProposalRequest(BaseModel):
 # SCRAPER STATE  (in-memory — cukup untuk single-instance)
 # ---------------------------------------------------------------------------
 _scraper_status: dict = {
+    # ── Live state (berubah saat scraper berjalan) ──
     "running": False,
+    "phase": None,              # "scraping" | "saving" | "done" | "error"
+    "current_source": None,     # scraper aktif: "civd" | "geodipa" | "gep"
+    "live_progress": None,      # dict detail progress (page, ann_type, dst)
+    "started_at": None,         # ISO timestamp mulai run
+    "elapsed_seconds": None,    # dihitung live saat GET, bukan disimpan
+    "items_found_so_far": 0,    # total item terkumpul dari scraper
+    "items_saved_so_far": 0,    # item berhasil commit ke DB
+    "items_failed_so_far": 0,   # item gagal disimpan
+
+    # ── Last completed run ──
     "last_run": None,
-    "last_count": 0,
     "last_source": None,
     "last_error": None,
-    "last_stats": None,
+    "last_duration_seconds": None,
+    "last_stats": None,         # {total_from_scraper, saved, skipped_*, failed}
 }
 
 
@@ -293,8 +304,31 @@ async def trigger_scrape(
 
 @app.get("/api/v1/scrape/status", tags=["scraper"])
 def get_scrape_status():
-    """Cek status scraper yang sedang atau terakhir berjalan."""
-    return _scraper_status
+    """
+    Cek status scraper yang sedang atau terakhir berjalan.
+
+    Response saat running:
+    - phase: "scraping" (fetching dari web) atau "saving" (simpan ke DB)
+    - current_source: scraper yang aktif sekarang
+    - live_progress: detail page/fase yang sedang diproses
+    - elapsed_seconds: berapa detik sejak scraper mulai (dihitung realtime)
+    - items_found_so_far: total item yang sudah dikumpulkan scraper
+    - items_saved_so_far: item yang sudah berhasil masuk DB
+
+    Response saat idle:
+    - phase: "done" atau "error"
+    - last_stats: ringkasan run terakhir
+    - last_duration_seconds: durasi run terakhir (detik)
+    """
+    status = dict(_scraper_status)
+    if status["running"] and status.get("started_at"):
+        try:
+            started = datetime.fromisoformat(status["started_at"])
+            elapsed = (datetime.now(WIB) - started).total_seconds()
+            status["elapsed_seconds"] = round(elapsed, 1)
+        except Exception:
+            pass
+    return status
 
 
 @app.get("/api/v1/tenders", tags=["scraper"])
@@ -327,13 +361,25 @@ def get_tenders(
                 "source": t.source,
                 "title": t.title,
                 "agency": t.agency,
-                "detail_url": t.detail_url,
-                "jenis_pengadaan": t.jenis_pengadaan,
-                "announcement_type_label": t.announcement_type_label,
-                "matched_kbli": t.matched_kbli,
+                "description": t.description,
+                "budget_estimated": t.budget_estimated,
+                "status": t.status,
+                "recommendation": t.recommendation,
                 "match_score": t.match_score,
+                "kbli_codes": json.loads(t.kbli_codes_json) if t.kbli_codes_json else [],
+                "kbli_matched": json.loads(t.kbli_matched_json) if t.kbli_matched_json else [],
                 "deadline_text": t.deadline_text,
+                "deadline_date": str(t.deadline_date) if t.deadline_date else None,
+                "source_url": t.source_url,
+                "doc_files": json.loads(t.doc_files_json) if t.doc_files_json else [],
+                "source_metadata": json.loads(t.source_metadata_json) if t.source_metadata_json else {},
+                "fingerprint": t.fingerprint,
+                "notes": t.notes,
+                "converted_to_project": t.converted_to_project,
+                "project_id": t.project_id,
+                "is_masked": t.is_masked,
                 "scraped_at": str(t.scraped_at),
+                "updated_at": str(t.updated_at) if t.updated_at else None,
             }
             for t in items
         ],
@@ -367,19 +413,19 @@ def export_tenders_json(
             "source": t.source,
             "title": t.title,
             "agency": t.agency,
-            "detail_url": t.detail_url,
-            "tender_text": t.tender_text,
-            "doc_url": t.doc_url,
-            "doc_files_json": t.doc_files_json,
-            "announcement_type": t.announcement_type,
-            "announcement_type_label": t.announcement_type_label,
-            "golongan_usaha_json": t.golongan_usaha_json,
-            "jenis_pengadaan": t.jenis_pengadaan,
-            "bidang_usaha_json": t.bidang_usaha_json,
-            "matched_kbli": t.matched_kbli,
-            "match_score": t.match_score,
+            "description": t.description,
+            "budget_estimated": t.budget_estimated,
             "deadline_text": t.deadline_text,
-            "publish_date": t.publish_date,
+            "deadline_date": str(t.deadline_date) if t.deadline_date else None,
+            "source_url": t.source_url,
+            "tender_text": t.tender_text,
+            "kbli_codes": json.loads(t.kbli_codes_json) if t.kbli_codes_json else [],
+            "kbli_matched": json.loads(t.kbli_matched_json) if t.kbli_matched_json else [],
+            "match_score": t.match_score,
+            "recommendation": t.recommendation,
+            "status": t.status,
+            "doc_files": json.loads(t.doc_files_json) if t.doc_files_json else [],
+            "source_metadata": json.loads(t.source_metadata_json) if t.source_metadata_json else {},
             "fingerprint": t.fingerprint,
             "scraped_at": str(t.scraped_at),
         }
@@ -460,9 +506,25 @@ async def _run_scraper_task(
 
     from api.models.database import SessionLocal
 
-    _scraper_status["running"] = True
-    _scraper_status["last_source"] = source
-    _scraper_status["last_error"] = None
+    _run_start = datetime.now(WIB)
+    _scraper_status.update({
+        "running": True,
+        "phase": "scraping",
+        "current_source": None,
+        "live_progress": None,
+        "started_at": _run_start.isoformat(),
+        "elapsed_seconds": 0,
+        "items_found_so_far": 0,
+        "items_saved_so_far": 0,
+        "items_failed_so_far": 0,
+        "last_source": source,
+        "last_error": None,
+    })
+
+    def _on_progress(info: dict) -> None:
+        _scraper_status["live_progress"] = info
+        if "found_so_far" in info:
+            _scraper_status["items_found_so_far"] = info["found_so_far"]
 
     db = SessionLocal()
     try:
@@ -475,12 +537,12 @@ async def _run_scraper_task(
         existing_fingerprints: set = {r.fingerprint for r in fp_rows}
 
         url_rows = (
-            db.query(TenderResult.detail_url)
+            db.query(TenderResult.source_url)
             .filter(TenderResult.source == "geodipa")
             .all()
         )
         existing_geodipa_urls: List[str] = [
-            r.detail_url for r in url_rows if r.detail_url
+            r.source_url for r in url_rows if r.source_url
         ]
 
         logger.info(
@@ -494,27 +556,33 @@ async def _run_scraper_task(
         results: List[dict] = []
 
         if source in ("geodipa", "all"):
-            geo = await scraper.scrape_geodipa(existing_urls=existing_geodipa_urls)
+            _scraper_status["current_source"] = "geodipa"
+            geo = await scraper.scrape_geodipa(
+                existing_urls=existing_geodipa_urls,
+                on_progress=_on_progress,
+            )
             logger.info(f"[TASK] scrape_geodipa returned {len(geo)} items")
-            if geo:
-                logger.info(f"[TASK] sample geodipa keys: {list(geo[0].keys())}")
             results.extend(geo)
+            _scraper_status["items_found_so_far"] = len(results)
 
         if source in ("civd", "all"):
-            civd = await scraper.scrape_civd(
+            _scraper_status["current_source"] = "civd"
+            civd_items = await scraper.scrape_civd(
                 max_pages=max_pages,
                 keyword=keyword,
                 existing_fingerprints=existing_fingerprints,
+                on_progress=_on_progress,
             )
-            logger.info(f"[TASK] scrape_civd returned {len(civd)} items")
-            if civd:
-                logger.info(f"[TASK] sample civd item: {civd[0]}")
-            results.extend(civd)
+            logger.info(f"[TASK] scrape_civd returned {len(civd_items)} items")
+            results.extend(civd_items)
+            _scraper_status["items_found_so_far"] = len(results)
 
         if source in ("gep", "all"):
+            _scraper_status["current_source"] = "gep"
             gep = await scraper.scrape_gep(max_pages=max_pages, keyword=keyword)
             logger.info(f"[TASK] scrape_gep returned {len(gep)} items")
             results.extend(gep)
+            _scraper_status["items_found_so_far"] = len(results)
 
         logger.info(f"[TASK] TOTAL results to save: {len(results)}")
         
@@ -525,6 +593,9 @@ async def _run_scraper_task(
         failed = 0
 
         if save_to_db:
+            _scraper_status["phase"] = "saving"
+            _scraper_status["current_source"] = None
+            _scraper_status["live_progress"] = None
             logger.info(
                 f"[TASK] Mulai save ke DB. Total results dari scraper: {len(results)}"
             )
@@ -537,16 +608,25 @@ async def _run_scraper_task(
                     skipped_fp += 1
                     continue
 
-                # Fallback dedup via detail_url (GeoDipa)
-                if not fp and item.get("detail_url"):
+                # Fallback dedup via source_url (GeoDipa)
+                if not fp and item.get("source_url"):
                     exists = (
                         db.query(TenderResult)
-                        .filter(TenderResult.detail_url == item["detail_url"])
+                        .filter(TenderResult.source_url == item["source_url"])
                         .first()
                     )
                     if exists:
                         skipped_url += 1
                         continue
+
+                # Parse deadline_date string → Python date
+                _dl = item.get("deadline_date")
+                deadline_date = None
+                if _dl:
+                    try:
+                        deadline_date = date_type.fromisoformat(_dl)
+                    except (ValueError, TypeError):
+                        pass
 
                 # Save per-item biar error 1 row gak rollback semua
                 try:
@@ -555,33 +635,30 @@ async def _run_scraper_task(
                             source=item.get("source", source),
                             title=item.get("title", ""),
                             agency=item.get("agency", ""),
-                            detail_url=item.get("detail_url") or "",
+                            description=item.get("description", ""),
+                            budget_estimated=item.get("budget_estimated"),
+                            deadline_text=item.get("deadline_text", ""),
+                            deadline_date=deadline_date,
+                            source_url=item.get("source_url", ""),
                             tender_text=(
                                 item.get("tender_text")
                                 or item.get("requirement_text", "")
                             ),
-                            doc_url=(
-                                item.get("doc_url") or item.get("document_url", "")
+                            kbli_codes_json=json.dumps(
+                                item.get("kbli_codes", []), ensure_ascii=False
                             ),
-                            doc_files_json=item.get(
-                                "doc_files_json",
-                                json.dumps(
-                                    item.get("doc_files", []), ensure_ascii=False
-                                ),
+                            kbli_matched_json=json.dumps(
+                                item.get("kbli_matched", []), ensure_ascii=False
                             ),
-                            announcement_type=item.get("announcement_type"),
-                            announcement_type_label=item.get(
-                                "announcement_type_label", ""
+                            match_score=item.get("match_score"),
+                            recommendation=item.get("recommendation"),
+                            status=item.get("status", "DITEMUKAN"),
+                            doc_files_json=json.dumps(
+                                item.get("doc_files", []), ensure_ascii=False
                             ),
-                            golongan_usaha_json=json.dumps(
-                                item.get("golongan_usaha", []), ensure_ascii=False
+                            source_metadata_json=json.dumps(
+                                item.get("source_metadata", {}), ensure_ascii=False
                             ),
-                            jenis_pengadaan=item.get("jenis_pengadaan", ""),
-                            bidang_usaha_json=json.dumps(
-                                item.get("bidang_usaha", []), ensure_ascii=False
-                            ),
-                            deadline_text=item.get("deadline_text", ""),
-                            publish_date=item.get("publish_date", ""),
                             fingerprint=fp,
                             scraped_at=_parse_scraped_at(item.get("scraped_at")),
                         )
@@ -591,10 +668,12 @@ async def _run_scraper_task(
                     if fp:
                         existing_fingerprints.add(fp)
                     saved += 1
+                    _scraper_status["items_saved_so_far"] = saved
                     logger.info(f"[TASK] #{idx} SAVED: {item.get('title', '')[:60]}")
 
                 except Exception as item_err:
                     failed += 1
+                    _scraper_status["items_failed_so_far"] = failed
                     db.rollback()
                     logger.error(
                         f"[TASK] #{idx} FAILED: {item_err} | "
@@ -609,15 +688,21 @@ async def _run_scraper_task(
                 f"SkippedURL={skipped_url}, Failed={failed}"
             )
 
-        _scraper_status["last_count"] = saved
-        _scraper_status["last_run"] = datetime.now().isoformat()
-        _scraper_status["last_stats"] = {
-            "total_from_scraper": len(results),
-            "saved": saved,
-            "skipped_duplicate_fingerprint": skipped_fp,
-            "skipped_duplicate_url": skipped_url,
-            "failed": failed,
-        }
+        duration = round((datetime.now(WIB) - _run_start).total_seconds(), 1)
+        _scraper_status.update({
+            "phase": "done",
+            "current_source": None,
+            "live_progress": None,
+            "last_run": datetime.now(WIB).isoformat(),
+            "last_duration_seconds": duration,
+            "last_stats": {
+                "total_from_scraper": len(results),
+                "saved": saved,
+                "skipped_duplicate_fingerprint": skipped_fp,
+                "skipped_duplicate_url": skipped_url,
+                "failed": failed,
+            },
+        })
 
     except Exception as e:
         logger.error(f"[TASK] Scraper error: {e}", exc_info=True)
