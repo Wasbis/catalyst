@@ -23,6 +23,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 from bs4 import BeautifulSoup
 
+from api.services.scraper import request_with_retry
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -131,11 +133,13 @@ class CIVDScraper:
                 verify=False, follow_redirects=True, timeout=20
             ) as client:
                 logger.info(f"[CIVD] Init session → GET {CIVD_INDEX}")
-                resp = await client.get(
+                resp = await request_with_retry(
+                    client,
+                    "GET",
                     CIVD_INDEX,
                     headers={**HEADERS, "Accept": "text/html,application/xhtml+xml"},
+                    log_prefix="[CIVD][init_session] ",
                 )
-                resp.raise_for_status()
 
                 session_cookies = dict(resp.cookies)
                 logger.debug(f"[CIVD] Cookies diterima: {list(session_cookies.keys())}")
@@ -192,7 +196,9 @@ class CIVDScraper:
             logger.info(f"[CIVD] GET {ajax_url} | params={params}")
 
             try:
-                resp = await client.get(
+                resp = await request_with_retry(
+                    client,
+                    "GET",
                     ajax_url,
                     params=params,
                     headers={
@@ -202,9 +208,9 @@ class CIVDScraper:
                         "Referer": CIVD_INDEX,
                     },
                     timeout=20,
+                    log_prefix=f"[CIVD][page={page} type={ann_type}] ",
                 )
                 logger.debug(f"[CIVD] Status: {resp.status_code} | URL: {resp.url}")
-                resp.raise_for_status()
 
                 text = resp.text.strip()
                 logger.debug(f"[CIVD] Response length: {len(text)} chars")
@@ -782,11 +788,14 @@ class CIVDScraper:
             async with httpx.AsyncClient(
                 verify=False, follow_redirects=True, timeout=60
             ) as client:
-                resp = await client.get(url, headers={**HEADERS, "Referer": CIVD_INDEX})
+                resp = await request_with_retry(
+                    client,
+                    "GET",
+                    url,
+                    headers={**HEADERS, "Referer": CIVD_INDEX},
+                    log_prefix=f"[CIVD][download file_id={file_id}] ",
+                )
             ct = resp.headers.get("content-type", "")
-            if resp.status_code != 200:
-                logger.error(f"[CIVD] HTTP {resp.status_code}: {resp.text[:200]}")
-                return None
             if "text/html" in ct:
                 logger.error(f"[CIVD] Got HTML instead of file: {resp.text[:200]}")
                 return None

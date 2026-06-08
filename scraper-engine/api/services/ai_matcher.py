@@ -41,7 +41,11 @@ def semantic_kbli_match(
         logger.info(
             f"AI Match Found! Score: {best_score:.2f} -> {matched_kbli['kbli_code']}"
         )
-        return {"kbli_code": matched_kbli["kbli_code"], "score": best_score}
+        return {
+            "kbli_code": matched_kbli["kbli_code"],
+            "description": matched_kbli["description"],
+            "score": best_score,
+        }
 
     logger.info(f"No semantic match found. Highest score was {best_score:.2f}")
     return None

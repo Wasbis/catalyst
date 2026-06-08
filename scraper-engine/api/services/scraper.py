@@ -14,6 +14,59 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# NFR 2.6 — retry otomatis maksimal 3x sebelum sebuah request dinyatakan gagal
+MAX_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 1.5
+
+
+async def request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    max_retries: int = MAX_RETRIES,
+    log_prefix: str = "",
+    **kwargs: Any,
+) -> httpx.Response:
+    """
+    Kirim HTTP request dengan retry otomatis (NFR 2.6: max 3x sebelum gagal).
+
+    Cuma retry untuk error yang sifatnya transient — timeout, masalah koneksi,
+    atau status 5xx (server sedang bermasalah). Status 4xx (mis. 404/403) langsung
+    di-raise tanpa retry karena mengulang request yang sama tidak akan mengubah hasil.
+
+    Raise exception terakhir kalau tetap gagal setelah `max_retries` percobaan —
+    biar pemanggil (loop scraping per page/detail) yang memutuskan cara handle-nya
+    (skip item itu, hentikan scrape, dst), konsisten dengan pola try/except yang
+    sudah ada di masing-masing scraper.
+    """
+    last_exc: Exception = RuntimeError(f"{method} {url} gagal tanpa exception tercatat")
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = await client.request(method, url, **kwargs)
+            resp.raise_for_status()
+            return resp
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code < 500:
+                raise
+            last_exc = e
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            last_exc = e
+
+        if attempt < max_retries:
+            wait = RETRY_BACKOFF_SECONDS * attempt
+            logger.warning(
+                f"{log_prefix}Percobaan {attempt}/{max_retries} gagal untuk "
+                f"{method} {url}: {last_exc}. Coba lagi dalam {wait:.1f}s..."
+            )
+            await asyncio.sleep(wait)
+
+    logger.error(
+        f"{log_prefix}{method} {url} tetap gagal setelah {max_retries}x percobaan: {last_exc}"
+    )
+    raise last_exc
+
 
 class CatalystScraper:
 
@@ -48,11 +101,10 @@ class CatalystScraper:
     async def fetch_html_async(self, url: str) -> Optional[str]:
         try:
             async with httpx.AsyncClient(verify=False, follow_redirects=True) as client:
-                resp = await client.get(url, headers=self.headers, timeout=15.0)
-                resp.raise_for_status()
+                resp = await request_with_retry(client, "GET", url, headers=self.headers, timeout=15.0)
                 return resp.text
         except Exception as e:
-            logger.error(f"Gagal fetch {url}: {e}")
+            logger.error(f"Gagal fetch {url} (setelah retry): {e}")
             return None
 
     def exact_regex_match(
@@ -111,52 +163,6 @@ class CatalystScraper:
             on_progress=on_progress,
         )
         return result.get("data", [])
-
-    # =========================================================================
-    # GEP — placeholder
-    # =========================================================================
-
-    async def scrape_gep(
-        self,
-        max_pages: int = 5,
-        keyword: str = "",
-    ) -> List[Dict[str, Any]]:
-        logger.info("[GEP] Scraper belum diimplementasi.")
-        return []
-
-    # =========================================================================
-    # RUNNER — jalankan semua scraper concurrent
-    # =========================================================================
-
-    async def run_all_scrapers(
-        self,
-        existing_fingerprints: set = None,
-        existing_geodipa_urls: List[str] = None,
-    ) -> List[Dict[str, Any]]:
-        if existing_fingerprints is None:
-            existing_fingerprints = set()
-        if existing_geodipa_urls is None:
-            existing_geodipa_urls = []
-
-        logger.info("Memulai scraping massal (GeoDipa + CIVD + GEP)...")
-
-        results = await asyncio.gather(
-            self.scrape_geodipa(existing_urls=existing_geodipa_urls),
-            self.scrape_civd(existing_fingerprints=existing_fingerprints),
-            self.scrape_gep(),
-            return_exceptions=True,
-        )
-
-        all_tenders: List[Dict[str, Any]] = []
-        labels = ["GeoDipa", "CIVD", "GEP"]
-        for label, result in zip(labels, results):
-            if isinstance(result, Exception):
-                logger.error(f"[RUN ALL] {label} gagal: {result}")
-            elif result:
-                all_tenders.extend(result)
-
-        logger.info(f"[RUN ALL] Total tender terkumpul: {len(all_tenders)}")
-        return all_tenders
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime, date as date_type, timezone, timedelta
@@ -21,6 +22,8 @@ from api.services.scraper import CatalystScraper
 # Database
 from api.models.database import (
     MasterKbli,
+    Notification,
+    ScrapingJob,
     TenderResult,
     get_db,
     init_db,
@@ -40,6 +43,48 @@ def _parse_scraped_at(value: str | None) -> datetime:
             pass
     return datetime.now(WIB)
 
+
+def _apply_tender_changes(existing: "TenderResult", item: dict) -> bool:
+    """
+    RF-T-005 — Change detection: bandingkan field yang rawan berubah di sumber
+    (budget, deadline, status platform via source_metadata) antara record yang
+    sudah ada dengan hasil scrape terbaru. Update record kalau ada perbedaan,
+    return True kalau ada perubahan yang di-apply (dipakai caller untuk hitung
+    `tenders_updated`), False kalau memang tidak ada yang berubah (skip biasa).
+    """
+    changed = False
+
+    new_budget = item.get("budget_estimated")
+    if new_budget is not None and new_budget != existing.budget_estimated:
+        existing.budget_estimated = new_budget
+        changed = True
+
+    new_deadline_text = item.get("deadline_text")
+    if new_deadline_text and new_deadline_text != existing.deadline_text:
+        existing.deadline_text = new_deadline_text
+        changed = True
+
+    raw_deadline_date = item.get("deadline_date")
+    if raw_deadline_date:
+        try:
+            new_deadline_date = date_type.fromisoformat(raw_deadline_date)
+            if new_deadline_date != existing.deadline_date:
+                existing.deadline_date = new_deadline_date
+                changed = True
+        except (ValueError, TypeError):
+            pass
+
+    # source_metadata menampung status platform yang spesifik per sumber
+    # (mis. geodipa_status "Terbuka" → "Ditutup") — bandingkan sebagai JSON string
+    new_metadata = item.get("source_metadata")
+    if new_metadata:
+        new_metadata_json = json.dumps(new_metadata, ensure_ascii=False)
+        if new_metadata_json != (existing.source_metadata_json or ""):
+            existing.source_metadata_json = new_metadata_json
+            changed = True
+
+    return changed
+
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="Catalyst Scraper & AI Engine",
@@ -53,9 +98,10 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def startup():
-    """Buat semua tabel DB saat server pertama kali naik."""
+    """Buat semua tabel DB + jalankan scheduler scraper otomatis (RF-T-001) saat server naik."""
     init_db()
     logger.info("Database initialised.")
+    asyncio.create_task(_scheduler_loop())
 
 
 # ---------------------------------------------------------------------------
@@ -74,10 +120,21 @@ class MatchRequest(BaseModel):
 
 
 class ScrapeRequest(BaseModel):
-    source: str = "all"  # "geodipa" | "civd" | "gep" | "all"
+    source: str = "all"  # "geodipa" | "civd" | "all"
     max_pages: int = 5
     keyword: Optional[str] = ""
     save_to_db: bool = True
+
+
+class ManualTenderRequest(BaseModel):
+    title: str
+    agency: Optional[str] = None
+    description: Optional[str] = None
+    requirement_text: Optional[str] = None
+    budget_estimated: Optional[int] = None
+    deadline_text: Optional[str] = None
+    deadline_date: Optional[date_type] = None
+    source_url: Optional[str] = None
 
 
 class ProposalRequest(BaseModel):
@@ -96,7 +153,7 @@ _scraper_status: dict = {
     # ── Live state (berubah saat scraper berjalan) ──
     "running": False,
     "phase": None,              # "scraping" | "saving" | "done" | "error"
-    "current_source": None,     # scraper aktif: "civd" | "geodipa" | "gep"
+    "current_source": None,     # scraper aktif: "civd" | "geodipa"
     "live_progress": None,      # dict detail progress (page, ann_type, dst)
     "started_at": None,         # ISO timestamp mulai run
     "elapsed_seconds": None,    # dihitung live saat GET, bukan disimpan
@@ -111,6 +168,77 @@ _scraper_status: dict = {
     "last_duration_seconds": None,
     "last_stats": None,         # {total_from_scraper, saved, skipped_*, failed}
 }
+
+
+# ---------------------------------------------------------------------------
+# RF-T-001 — Scheduler otomatis (GeoDipa tiap 24 jam, CIVD tiap 12 jam)
+# ---------------------------------------------------------------------------
+# In-process asyncio loop (bukan APScheduler/cron eksternal) — cukup untuk
+# single-instance deployment saat ini & gak nambah dependency baru. Acuan "kapan
+# terakhir run" diambil dari tabel `scraping_jobs` (bukan in-memory) supaya tetap
+# akurat lintas restart server.
+SCHEDULER_INTERVALS: dict[str, timedelta] = {
+    "geodipa": timedelta(hours=24),
+    "civd": timedelta(hours=12),
+}
+SCHEDULER_CHECK_INTERVAL_SECONDS = 15 * 60  # cek kelayakan tiap 15 menit
+SCHEDULED_MAX_PAGES = 50
+
+
+def _is_scrape_due(db: Session, source: str, interval: timedelta, now: datetime) -> bool:
+    last_job = (
+        db.query(ScrapingJob)
+        .filter(ScrapingJob.source == source)
+        .order_by(ScrapingJob.started_at.desc())
+        .first()
+    )
+    if last_job is None:
+        return True
+    return (now - last_job.started_at) >= interval
+
+
+async def _maybe_run_scheduled_scrape() -> None:
+    if _scraper_status["running"]:
+        return
+
+    from api.models.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(WIB)
+        due = [
+            source
+            for source, interval in SCHEDULER_INTERVALS.items()
+            if _is_scrape_due(db, source, interval, now)
+        ]
+    finally:
+        db.close()
+
+    if not due:
+        return
+
+    source = "all" if len(due) == len(SCHEDULER_INTERVALS) else due[0]
+    logger.info(f"[Scheduler] Waktunya scrape terjadwal: {due} → trigger source='{source}'")
+    await _run_scraper_task(
+        source=source,
+        max_pages=SCHEDULED_MAX_PAGES,
+        keyword="",
+        save_to_db=True,
+        trigger="scheduled",
+    )
+
+
+async def _scheduler_loop() -> None:
+    logger.info(
+        "[Scheduler] Aktif — GeoDipa tiap 24 jam, CIVD tiap 12 jam "
+        f"(cek tiap {SCHEDULER_CHECK_INTERVAL_SECONDS // 60} menit)."
+    )
+    while True:
+        try:
+            await _maybe_run_scheduled_scrape()
+        except Exception as e:
+            logger.error(f"[Scheduler] Error saat cek/jalankan scrape terjadwal: {e}", exc_info=True)
+        await asyncio.sleep(SCHEDULER_CHECK_INTERVAL_SECONDS)
 
 
 # ---------------------------------------------------------------------------
@@ -190,15 +318,15 @@ def api_match_kbli(
 
 
 # ---------------------------------------------------------------------------
-# ENDPOINTS — PDF EXTRACTION
+# ENDPOINTS — KBLI IMPORT (dari PDF NIB)
 # ---------------------------------------------------------------------------
-@app.post("/api/v1/extract-pdf", tags=["pdf"])
-async def api_extract_pdf(
+@app.post("/api/v1/kbli/import-preview", tags=["kbli"])
+async def preview_kbli_import_from_pdf(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
     """
-    Upload file PDF NIB, ekstrak daftar KBLI-nya.
+    Upload file PDF NIB, ekstrak daftar KBLI-nya untuk di-preview (belum disimpan ke DB).
     Nama dan deskripsi KBLI di output di-mask jika mengandung data sensitif.
     """
     if not file.filename.lower().endswith(".pdf"):
@@ -228,7 +356,7 @@ async def api_extract_pdf(
         }
 
     except Exception as e:
-        logger.error(f"Error di extract-pdf: {e}", exc_info=True)
+        logger.error(f"Error di kbli/import-preview: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Gagal memproses file PDF.")
 
 
@@ -271,7 +399,7 @@ async def trigger_scrape(
 ):
     """
     Trigger scraper di background.
-    Source: "geodipa" | "civd" | "gep" | "all"
+    Source: "geodipa" | "civd" | "all"
     """
     if _scraper_status["running"]:
         raise HTTPException(
@@ -279,7 +407,7 @@ async def trigger_scrape(
             detail="Scraper sedang berjalan. Tunggu sampai selesai.",
         )
 
-    valid_sources = {"geodipa", "civd", "gep", "all"}
+    valid_sources = {"geodipa", "civd", "all"}
     if req.source not in valid_sources:
         raise HTTPException(
             status_code=422,
@@ -294,6 +422,7 @@ async def trigger_scrape(
         max_pages=req.max_pages,
         keyword=req.keyword or "",
         save_to_db=req.save_to_db,
+        trigger="manual",
     )
     return {
         "status": "started",
@@ -329,6 +458,94 @@ def get_scrape_status():
         except Exception:
             pass
     return status
+
+
+@app.get("/api/v1/scraper/log", tags=["scraper"])
+def get_scraper_log(
+    source: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """
+    Riwayat run scraper per platform — dari tabel `scraping_jobs`.
+    Filter opsional: `?source=civd`, `?source=geodipa`.
+
+    Catatan: tabel ini baru terisi kalau `_run_scraper_task` sudah mencatat
+    setiap run ke `scraping_jobs` (RF-T-012 — masih perlu di-wire, lihat todo.md).
+    """
+    query = db.query(ScrapingJob)
+    if source:
+        query = query.filter(ScrapingJob.source == source)
+
+    total = query.count()
+    items = (
+        query.order_by(ScrapingJob.started_at.desc()).offset(offset).limit(limit).all()
+    )
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "id": j.id,
+                "source": j.source,
+                "trigger": j.trigger,
+                "status": j.status,
+                "started_at": str(j.started_at),
+                "finished_at": str(j.finished_at) if j.finished_at else None,
+                "tenders_found": j.tenders_found,
+                "tenders_new": j.tenders_new,
+                "tenders_updated": j.tenders_updated,
+                "error_message": j.error_message,
+                "consecutive_failures": j.consecutive_failures,
+            }
+            for j in items
+        ],
+    }
+
+
+@app.post("/api/v1/tenders", tags=["scraper"], status_code=201)
+def create_manual_tender(
+    req: ManualTenderRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Input tender secara manual (di luar hasil scraping).
+
+    Dipakai untuk tender yang ditemukan dari sumber lain (relasi, email, dst)
+    yang nggak ke-cover scraper CIVD/GeoDipa. Tersimpan ke tabel `tender_results`
+    yang sama, jadi langsung muncul di list/kanban bareng hasil scraping.
+    """
+    now = datetime.now(WIB)
+    fingerprint = hashlib.md5(
+        f"manual:{req.title}:{req.agency or ''}:{now.isoformat()}".encode("utf-8")
+    ).hexdigest()
+
+    tender = TenderResult(
+        source="manual",
+        title=req.title,
+        agency=req.agency,
+        description=req.description,
+        budget_estimated=req.budget_estimated,
+        deadline_text=req.deadline_text,
+        deadline_date=req.deadline_date,
+        source_url=req.source_url,
+        tender_text=req.requirement_text,
+        fingerprint=fingerprint,
+        status="DITEMUKAN",
+        scraped_at=now,
+    )
+    db.add(tender)
+    db.commit()
+    db.refresh(tender)
+
+    return {
+        "status": "success",
+        "message": "Tender manual berhasil ditambahkan.",
+        "data": {"id": tender.id, "fingerprint": tender.fingerprint},
+    }
 
 
 @app.get("/api/v1/tenders", tags=["scraper"])
@@ -441,6 +658,101 @@ def export_tenders_json(
 
 
 # ---------------------------------------------------------------------------
+# ENDPOINTS — TENDER DETAIL & STATUS
+# Catatan: harus didaftarkan SETELAH /api/v1/tenders/export — path dinamis
+# {tender_id} kalau didaftarkan duluan akan "menelan" path statis /export
+# (FastAPI mencocokkan path secara berurutan).
+# ---------------------------------------------------------------------------
+@app.get("/api/v1/tenders/{tender_id}", tags=["scraper"])
+def get_tender_detail(
+    tender_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Ambil detail satu tender berdasarkan ID — termasuk `tender_text` lengkap
+    (requirement text) yang nggak disertakan di endpoint list.
+    """
+    tender = db.query(TenderResult).filter(TenderResult.id == tender_id).first()
+    if not tender:
+        raise HTTPException(
+            status_code=404, detail=f"Tender dengan id={tender_id} tidak ditemukan."
+        )
+
+    return {
+        "id": tender.id,
+        "source": tender.source,
+        "title": tender.title,
+        "agency": tender.agency,
+        "description": tender.description,
+        "tender_text": tender.tender_text,
+        "budget_estimated": tender.budget_estimated,
+        "status": tender.status,
+        "recommendation": tender.recommendation,
+        "match_score": tender.match_score,
+        "kbli_codes": json.loads(tender.kbli_codes_json) if tender.kbli_codes_json else [],
+        "kbli_matched": json.loads(tender.kbli_matched_json) if tender.kbli_matched_json else [],
+        "deadline_text": tender.deadline_text,
+        "deadline_date": str(tender.deadline_date) if tender.deadline_date else None,
+        "source_url": tender.source_url,
+        "doc_files": json.loads(tender.doc_files_json) if tender.doc_files_json else [],
+        "source_metadata": json.loads(tender.source_metadata_json) if tender.source_metadata_json else {},
+        "fingerprint": tender.fingerprint,
+        "notes": tender.notes,
+        "converted_to_project": tender.converted_to_project,
+        "project_id": tender.project_id,
+        "is_masked": tender.is_masked,
+        "scraped_at": str(tender.scraped_at),
+        "updated_at": str(tender.updated_at) if tender.updated_at else None,
+    }
+
+
+VALID_TENDER_STATUSES = {
+    "DITEMUKAN", "DITINJAU", "DIKEJAR", "DISERAHKAN", "MENANG", "KALAH", "BATAL",
+}
+
+
+class TenderStatusUpdateRequest(BaseModel):
+    status: str
+
+
+@app.put("/api/v1/tenders/{tender_id}/status", tags=["scraper"])
+def update_tender_status(
+    tender_id: int,
+    req: TenderStatusUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Update status tender mengikuti workflow:
+    DITEMUKAN → DITINJAU → DIKEJAR → DISERAHKAN → MENANG / KALAH / BATAL
+    """
+    if req.status not in VALID_TENDER_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Status tidak valid. Pilih salah satu: {sorted(VALID_TENDER_STATUSES)}",
+        )
+
+    tender = db.query(TenderResult).filter(TenderResult.id == tender_id).first()
+    if not tender:
+        raise HTTPException(
+            status_code=404, detail=f"Tender dengan id={tender_id} tidak ditemukan."
+        )
+
+    tender.status = req.status
+    db.commit()
+    db.refresh(tender)
+
+    return {
+        "status": "success",
+        "message": f"Status tender #{tender_id} diupdate jadi '{req.status}'.",
+        "data": {
+            "id": tender.id,
+            "status": tender.status,
+            "updated_at": str(tender.updated_at) if tender.updated_at else None,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # ENDPOINTS — PROPOSAL GENERATOR
 # ---------------------------------------------------------------------------
 @app.post("/api/v1/generate-proposal", tags=["proposal"])
@@ -486,6 +798,82 @@ def generate_proposal(
 
 
 # ---------------------------------------------------------------------------
+# RF-T-008 — Notifikasi tender skor tinggi
+# ---------------------------------------------------------------------------
+HIGH_SCORE_THRESHOLD = 70
+
+
+def _notify_on_high_score_tender(db: Session, tender: TenderResult) -> None:
+    """
+    Kirim notifikasi ke admin begitu tender BARU yang baru disimpan punya
+    `match_score` >= HIGH_SCORE_THRESHOLD.
+
+    CATATAN PENTING: saat ini scraper (civd_scraper.py/geodipa_scraper.py) selalu
+    menyimpan `match_score=None` — AI scoring (RF-T-006/RF-T-007, semantic match
+    via `semantic_kbli_match`) belum di-wire ke pipeline scrape→save, jadi trigger
+    ini "siap pakai" tapi belum akan benar-benar terpicu sampai scoring itu
+    diintegrasikan. Lihat catatan di todo.md.
+    """
+    if tender.match_score is None or tender.match_score < HIGH_SCORE_THRESHOLD:
+        return
+
+    try:
+        db.add(
+            Notification(
+                title=f"Tender skor tinggi: {tender.title[:80]}",
+                message=(
+                    f"Tender '{tender.title}' dari {tender.source.upper()} "
+                    f"punya skor kecocokan {tender.match_score} (≥ {HIGH_SCORE_THRESHOLD}). "
+                    f"Rekomendasi: {tender.recommendation or '-'}."
+                ),
+                action_link=f"/tenders/{tender.id}",
+            )
+        )
+        db.commit()
+        logger.info(
+            f"[TASK] Notifikasi skor tinggi terkirim untuk tender #{tender.id} "
+            f"(score={tender.match_score})"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Gagal menyimpan notifikasi skor tinggi: {e}")
+
+
+# ---------------------------------------------------------------------------
+# RF-T-013 — Notifikasi kegagalan scraper 2x berturut-turut
+# ---------------------------------------------------------------------------
+def _notify_on_scraper_failure(db: Session, job: ScrapingJob) -> None:
+    """
+    Kirim notifikasi ke admin begitu sebuah platform scraper gagal PERSIS 2x
+    berturut-turut. Dicek dengan `== 2` (bukan `>= 2`) supaya cuma terkirim
+    sekali per "rentetan kegagalan" — bukan setiap kali gagal lagi (3x, 4x, dst),
+    sampai akhirnya berhasil lagi dan counter-nya reset ke 0.
+    """
+    if job.status != "failed" or job.consecutive_failures != 2:
+        return
+
+    try:
+        db.add(
+            Notification(
+                title=f"Scraper {job.source} gagal 2x berturut-turut",
+                message=(
+                    f"Scraper '{job.source}' gagal berjalan 2 kali berturut-turut. "
+                    f"Pesan error terakhir: {job.error_message or '-'}"
+                ),
+                action_link=f"/scraper/log?source={job.source}",
+            )
+        )
+        db.commit()
+        logger.warning(
+            f"[TASK][{job.source}] Notifikasi kegagalan scraper terkirim "
+            f"(consecutive_failures={job.consecutive_failures})"
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Gagal menyimpan notifikasi kegagalan scraper: {e}")
+
+
+# ---------------------------------------------------------------------------
 # BACKGROUND TASK — SCRAPER RUNNER
 # ---------------------------------------------------------------------------
 async def _run_scraper_task(
@@ -493,14 +881,17 @@ async def _run_scraper_task(
     max_pages: int,
     keyword: str,
     save_to_db: bool,
+    trigger: str = "manual",
 ) -> None:
     """
     Background task yang menjalankan scraper dan menyimpan hasilnya ke DB.
 
-    Flow:
-    1. Load existing fingerprints + GeoDipa URLs dari DB untuk dedup
-    2. Jalankan scraper sesuai source
-    3. Simpan hasil baru ke tabel tender_results
+    Flow per platform (geodipa/civd dijalankan terpisah supaya log & status
+    kegagalannya independen — RF-T-012/RF-T-013):
+    1. Catat baris `ScrapingJob` baru (status=running)
+    2. Load existing fingerprints/URLs dari DB untuk dedup
+    3. Jalankan scraper, simpan hasil baru ke tabel tender_results
+    4. Tutup `ScrapingJob` dengan statistik final + consecutive_failures
     """
     from datetime import datetime
 
@@ -526,167 +917,225 @@ async def _run_scraper_task(
         if "found_so_far" in info:
             _scraper_status["items_found_so_far"] = info["found_so_far"]
 
+    platforms: List[str] = []
+    if source in ("geodipa", "all"):
+        platforms.append("geodipa")
+    if source in ("civd", "all"):
+        platforms.append("civd")
+
     db = SessionLocal()
+    scraper = CatalystScraper()
+    total_found = total_saved = total_updated = 0
+    total_skipped_fp = total_skipped_url = total_failed = 0
+
     try:
-        # ── Load data dedup dari DB ──────────────────────────────────────
-        fp_rows = (
-            db.query(TenderResult.fingerprint)
-            .filter(TenderResult.fingerprint.isnot(None))
-            .all()
-        )
-        existing_fingerprints: set = {r.fingerprint for r in fp_rows}
-
-        url_rows = (
-            db.query(TenderResult.source_url)
-            .filter(TenderResult.source == "geodipa")
-            .all()
-        )
-        existing_geodipa_urls: List[str] = [
-            r.source_url for r in url_rows if r.source_url
-        ]
-
-        logger.info(
-            f"[TASK] Dedup loaded — "
-            f"{len(existing_fingerprints)} fingerprints, "
-            f"{len(existing_geodipa_urls)} GeoDipa URLs."
-        )
-
-        # ── Jalankan scraper ─────────────────────────────────────────────
-        scraper = CatalystScraper()
-        results: List[dict] = []
-
-        if source in ("geodipa", "all"):
-            _scraper_status["current_source"] = "geodipa"
-            geo = await scraper.scrape_geodipa(
-                existing_urls=existing_geodipa_urls,
-                on_progress=_on_progress,
-            )
-            logger.info(f"[TASK] scrape_geodipa returned {len(geo)} items")
-            results.extend(geo)
-            _scraper_status["items_found_so_far"] = len(results)
-
-        if source in ("civd", "all"):
-            _scraper_status["current_source"] = "civd"
-            civd_items = await scraper.scrape_civd(
-                max_pages=max_pages,
-                keyword=keyword,
-                existing_fingerprints=existing_fingerprints,
-                on_progress=_on_progress,
-            )
-            logger.info(f"[TASK] scrape_civd returned {len(civd_items)} items")
-            results.extend(civd_items)
-            _scraper_status["items_found_so_far"] = len(results)
-
-        if source in ("gep", "all"):
-            _scraper_status["current_source"] = "gep"
-            gep = await scraper.scrape_gep(max_pages=max_pages, keyword=keyword)
-            logger.info(f"[TASK] scrape_gep returned {len(gep)} items")
-            results.extend(gep)
-            _scraper_status["items_found_so_far"] = len(results)
-
-        logger.info(f"[TASK] TOTAL results to save: {len(results)}")
-        
-        # ── Simpan ke DB ─────────────────────────────────────────────────
-        saved = 0
-        skipped_fp = 0
-        skipped_url = 0
-        failed = 0
-
-        if save_to_db:
-            _scraper_status["phase"] = "saving"
-            _scraper_status["current_source"] = None
+        for platform in platforms:
+            _scraper_status["phase"] = "scraping"
+            _scraper_status["current_source"] = platform
             _scraper_status["live_progress"] = None
-            logger.info(
-                f"[TASK] Mulai save ke DB. Total results dari scraper: {len(results)}"
+
+            # ── Buka ScrapingJob (RF-T-012) ──────────────────────────────
+            job = ScrapingJob(source=platform, trigger=trigger, status="running")
+            db.add(job)
+            db.commit()
+            db.refresh(job)
+
+            items: List[dict] = []
+            saved = updated = skipped_fp = skipped_url = failed = 0
+            job_error: Optional[str] = None
+
+            try:
+                # ── Load data dedup dari DB ──────────────────────────────
+                fp_rows = (
+                    db.query(TenderResult.fingerprint)
+                    .filter(TenderResult.fingerprint.isnot(None))
+                    .all()
+                )
+                existing_fingerprints: set = {r.fingerprint for r in fp_rows}
+
+                if platform == "geodipa":
+                    url_rows = (
+                        db.query(TenderResult.source_url)
+                        .filter(TenderResult.source == "geodipa")
+                        .all()
+                    )
+                    existing_geodipa_urls: List[str] = [
+                        r.source_url for r in url_rows if r.source_url
+                    ]
+                    logger.info(
+                        f"[TASK][{platform}] Dedup loaded — "
+                        f"{len(existing_fingerprints)} fingerprints, "
+                        f"{len(existing_geodipa_urls)} GeoDipa URLs."
+                    )
+                    items = await scraper.scrape_geodipa(
+                        existing_urls=existing_geodipa_urls,
+                        on_progress=_on_progress,
+                    )
+                else:
+                    logger.info(
+                        f"[TASK][{platform}] Dedup loaded — "
+                        f"{len(existing_fingerprints)} fingerprints."
+                    )
+                    items = await scraper.scrape_civd(
+                        max_pages=max_pages,
+                        keyword=keyword,
+                        existing_fingerprints=existing_fingerprints,
+                        on_progress=_on_progress,
+                    )
+
+                logger.info(f"[TASK][{platform}] scraper returned {len(items)} items")
+                total_found += len(items)
+                _scraper_status["items_found_so_far"] = total_found
+
+                # ── Simpan ke DB ─────────────────────────────────────────
+                if save_to_db:
+                    _scraper_status["phase"] = "saving"
+                    _scraper_status["current_source"] = platform
+                    _scraper_status["live_progress"] = None
+                    logger.info(
+                        f"[TASK][{platform}] Mulai save ke DB. Total dari scraper: {len(items)}"
+                    )
+
+                    for idx, item in enumerate(items):
+                        fp = item.get("fingerprint")
+                        existing_row: Optional[TenderResult] = None
+
+                        # Fingerprint sudah ada → cek perubahan (RF-T-005),
+                        # bukan langsung skip — siapa tahu budget/deadline/status berubah
+                        if fp and fp in existing_fingerprints:
+                            existing_row = (
+                                db.query(TenderResult)
+                                .filter(TenderResult.fingerprint == fp)
+                                .first()
+                            )
+                        # Fallback dedup via source_url (GeoDipa, fingerprint kosong)
+                        elif not fp and item.get("source_url"):
+                            existing_row = (
+                                db.query(TenderResult)
+                                .filter(TenderResult.source_url == item["source_url"])
+                                .first()
+                            )
+
+                        if existing_row:
+                            if _apply_tender_changes(existing_row, item):
+                                try:
+                                    db.commit()
+                                    updated += 1
+                                    logger.info(
+                                        f"[TASK][{platform}] #{idx} UPDATED (RF-T-005): "
+                                        f"{item.get('title', '')[:60]}"
+                                    )
+                                except Exception as upd_err:
+                                    db.rollback()
+                                    logger.error(f"[TASK][{platform}] #{idx} update gagal: {upd_err}")
+                            elif fp:
+                                skipped_fp += 1
+                            else:
+                                skipped_url += 1
+                            continue
+
+                        # Parse deadline_date string → Python date
+                        _dl = item.get("deadline_date")
+                        deadline_date = None
+                        if _dl:
+                            try:
+                                deadline_date = date_type.fromisoformat(_dl)
+                            except (ValueError, TypeError):
+                                pass
+
+                        # Save per-item biar error 1 row gak rollback semua
+                        try:
+                            new_tender = TenderResult(
+                                    source=item.get("source", platform),
+                                    title=item.get("title", ""),
+                                    agency=item.get("agency", ""),
+                                    description=item.get("description", ""),
+                                    budget_estimated=item.get("budget_estimated"),
+                                    deadline_text=item.get("deadline_text", ""),
+                                    deadline_date=deadline_date,
+                                    source_url=item.get("source_url", ""),
+                                    tender_text=(
+                                        item.get("tender_text")
+                                        or item.get("requirement_text", "")
+                                    ),
+                                    kbli_codes_json=json.dumps(
+                                        item.get("kbli_codes", []), ensure_ascii=False
+                                    ),
+                                    kbli_matched_json=json.dumps(
+                                        item.get("kbli_matched", []), ensure_ascii=False
+                                    ),
+                                    match_score=item.get("match_score"),
+                                    recommendation=item.get("recommendation"),
+                                    status=item.get("status", "DITEMUKAN"),
+                                    doc_files_json=json.dumps(
+                                        item.get("doc_files", []), ensure_ascii=False
+                                    ),
+                                    source_metadata_json=json.dumps(
+                                        item.get("source_metadata", {}), ensure_ascii=False
+                                    ),
+                                    fingerprint=fp,
+                                    scraped_at=_parse_scraped_at(item.get("scraped_at")),
+                                    scraping_job_id=job.id,
+                            )
+                            db.add(new_tender)
+                            db.commit()  # commit per-item
+                            db.refresh(new_tender)
+
+                            if fp:
+                                existing_fingerprints.add(fp)
+                            saved += 1
+                            _scraper_status["items_saved_so_far"] = total_saved + saved
+                            logger.info(f"[TASK][{platform}] #{idx} SAVED: {item.get('title', '')[:60]}")
+
+                            _notify_on_high_score_tender(db, new_tender)
+
+                        except Exception as item_err:
+                            failed += 1
+                            _scraper_status["items_failed_so_far"] = total_failed + failed
+                            db.rollback()
+                            logger.error(
+                                f"[TASK][{platform}] #{idx} FAILED: {item_err} | "
+                                f"title={item.get('title', '')[:60]} | "
+                                f"source={item.get('source')}"
+                            )
+                            logger.error(f"[TASK][{platform}] #{idx} item keys: {list(item.keys())}")
+
+                    logger.info(
+                        f"[TASK][{platform}] DONE. Total={len(items)}, "
+                        f"Saved={saved}, Updated={updated}, SkippedFP={skipped_fp}, "
+                        f"SkippedURL={skipped_url}, Failed={failed}"
+                    )
+
+            except Exception as e:
+                job_error = str(e)
+                logger.error(f"[TASK][{platform}] Scraper error: {e}", exc_info=True)
+                db.rollback()
+
+            # ── Tutup ScrapingJob — statistik & consecutive_failures (RF-T-013) ──
+            prev_job = (
+                db.query(ScrapingJob)
+                .filter(ScrapingJob.source == platform, ScrapingJob.id != job.id)
+                .order_by(ScrapingJob.started_at.desc())
+                .first()
             )
+            prev_failures = prev_job.consecutive_failures if prev_job else 0
 
-            for idx, item in enumerate(results):
-                fp = item.get("fingerprint")
+            job.status = "failed" if job_error else "success"
+            job.finished_at = datetime.now(WIB)
+            job.tenders_found = len(items)
+            job.tenders_new = saved
+            job.tenders_updated = updated
+            job.error_message = job_error
+            job.consecutive_failures = (prev_failures + 1) if job_error else 0
+            db.commit()
 
-                # Skip kalau fingerprint sudah ada
-                if fp and fp in existing_fingerprints:
-                    skipped_fp += 1
-                    continue
+            _notify_on_scraper_failure(db, job)
 
-                # Fallback dedup via source_url (GeoDipa)
-                if not fp and item.get("source_url"):
-                    exists = (
-                        db.query(TenderResult)
-                        .filter(TenderResult.source_url == item["source_url"])
-                        .first()
-                    )
-                    if exists:
-                        skipped_url += 1
-                        continue
-
-                # Parse deadline_date string → Python date
-                _dl = item.get("deadline_date")
-                deadline_date = None
-                if _dl:
-                    try:
-                        deadline_date = date_type.fromisoformat(_dl)
-                    except (ValueError, TypeError):
-                        pass
-
-                # Save per-item biar error 1 row gak rollback semua
-                try:
-                    db.add(
-                        TenderResult(
-                            source=item.get("source", source),
-                            title=item.get("title", ""),
-                            agency=item.get("agency", ""),
-                            description=item.get("description", ""),
-                            budget_estimated=item.get("budget_estimated"),
-                            deadline_text=item.get("deadline_text", ""),
-                            deadline_date=deadline_date,
-                            source_url=item.get("source_url", ""),
-                            tender_text=(
-                                item.get("tender_text")
-                                or item.get("requirement_text", "")
-                            ),
-                            kbli_codes_json=json.dumps(
-                                item.get("kbli_codes", []), ensure_ascii=False
-                            ),
-                            kbli_matched_json=json.dumps(
-                                item.get("kbli_matched", []), ensure_ascii=False
-                            ),
-                            match_score=item.get("match_score"),
-                            recommendation=item.get("recommendation"),
-                            status=item.get("status", "DITEMUKAN"),
-                            doc_files_json=json.dumps(
-                                item.get("doc_files", []), ensure_ascii=False
-                            ),
-                            source_metadata_json=json.dumps(
-                                item.get("source_metadata", {}), ensure_ascii=False
-                            ),
-                            fingerprint=fp,
-                            scraped_at=_parse_scraped_at(item.get("scraped_at")),
-                        )
-                    )
-                    db.commit()  # commit per-item
-
-                    if fp:
-                        existing_fingerprints.add(fp)
-                    saved += 1
-                    _scraper_status["items_saved_so_far"] = saved
-                    logger.info(f"[TASK] #{idx} SAVED: {item.get('title', '')[:60]}")
-
-                except Exception as item_err:
-                    failed += 1
-                    _scraper_status["items_failed_so_far"] = failed
-                    db.rollback()
-                    logger.error(
-                        f"[TASK] #{idx} FAILED: {item_err} | "
-                        f"title={item.get('title', '')[:60]} | "
-                        f"source={item.get('source')}"
-                    )
-                    logger.error(f"[TASK] #{idx} item keys: {list(item.keys())}")
-
-            logger.info(
-                f"[TASK] DONE. Total={len(results)}, "
-                f"Saved={saved}, SkippedFP={skipped_fp}, "
-                f"SkippedURL={skipped_url}, Failed={failed}"
-            )
+            total_saved += saved
+            total_updated += updated
+            total_skipped_fp += skipped_fp
+            total_skipped_url += skipped_url
+            total_failed += failed
 
         duration = round((datetime.now(WIB) - _run_start).total_seconds(), 1)
         _scraper_status.update({
@@ -696,11 +1145,12 @@ async def _run_scraper_task(
             "last_run": datetime.now(WIB).isoformat(),
             "last_duration_seconds": duration,
             "last_stats": {
-                "total_from_scraper": len(results),
-                "saved": saved,
-                "skipped_duplicate_fingerprint": skipped_fp,
-                "skipped_duplicate_url": skipped_url,
-                "failed": failed,
+                "total_from_scraper": total_found,
+                "saved": total_saved,
+                "updated": total_updated,
+                "skipped_duplicate_fingerprint": total_skipped_fp,
+                "skipped_duplicate_url": total_skipped_url,
+                "failed": total_failed,
             },
         })
 
@@ -710,5 +1160,6 @@ async def _run_scraper_task(
         _scraper_status["last_error"] = str(e)
 
     finally:
+        db.close()
         _scraper_status["running"] = False
         db.close()

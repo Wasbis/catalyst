@@ -22,6 +22,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 from bs4 import BeautifulSoup
 
+from api.services.scraper import request_with_retry
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -111,13 +113,15 @@ class GeodipaScraper:
         logger.info(f"[GeoDipa] POST {GEODIPA_API_URL} | payload={payload}")
 
         try:
-            resp = await client.post(
+            resp = await request_with_retry(
+                client,
+                "POST",
                 GEODIPA_API_URL,
                 json=payload,
                 headers=HEADERS,
                 timeout=20.0,
+                log_prefix=f"[GeoDipa][page={page}] ",
             )
-            resp.raise_for_status()
 
             raw = resp.json()
             if isinstance(raw, dict):
@@ -368,8 +372,14 @@ class GeodipaScraper:
 
     async def fetch_detail(self, client: httpx.AsyncClient, detail_url: str) -> Optional[str]:
         try:
-            resp = await client.get(detail_url, headers=HEADERS, timeout=15.0)
-            resp.raise_for_status()
+            resp = await request_with_retry(
+                client,
+                "GET",
+                detail_url,
+                headers=HEADERS,
+                timeout=15.0,
+                log_prefix="[GeoDipa][detail] ",
+            )
             return resp.text
         except Exception as e:
             logger.error(f"[GeoDipa] Gagal fetch detail {detail_url}: {e}")

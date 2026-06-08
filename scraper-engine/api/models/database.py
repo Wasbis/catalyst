@@ -9,6 +9,7 @@ Strategi naming:
 """
 
 import os
+import uuid
 from dotenv import load_dotenv
 
 from sqlalchemy import (
@@ -86,6 +87,27 @@ class DataMasking(Base):
 
 
 # ---------------------------------------------------------------------------
+# Notification
+# Tabel ini sudah dibuat Prisma (model `Notification`, default table name sama
+# dengan nama model karena tidak ada @@map) → pakai alias kolom camelCase.
+# Dipakai untuk RF-T-008 (notif skor tinggi) & RF-T-013 (notif kegagalan scraper).
+# ---------------------------------------------------------------------------
+class Notification(Base):
+    __tablename__ = "Notification"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    title = Column("title", String, nullable=False)
+    message = Column("message", Text, nullable=False)
+    action_link = Column("actionLink", Text, nullable=True)
+    is_read = Column("isRead", Boolean, default=False, nullable=False)
+    created_at = Column("createdAt", DateTime(timezone=True), server_default=func.now())
+    user_id = Column("userId", String, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<Notification '{self.title}' read={self.is_read}>"
+
+
+# ---------------------------------------------------------------------------
 # ScrapingJob
 # Log setiap job scraping — untuk RF-T-012 (logging) dan RF-T-013 (deteksi 2x gagal).
 # Harus didefinisikan sebelum TenderResult karena TenderResult punya FK ke sini.
@@ -94,7 +116,7 @@ class ScrapingJob(Base):
     __tablename__ = "scraping_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
-    source = Column(String(50), nullable=False, index=True)     # civd|lpse|geodipa
+    source = Column(String(50), nullable=False, index=True)     # civd|geodipa
     trigger = Column(String(20), default="scheduled")           # scheduled|manual
     status = Column(String(20), default="running", nullable=False)  # running|success|failed
     started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -123,7 +145,7 @@ class TenderResult(Base):
 
     # === Identity ===
     id = Column(Integer, primary_key=True, index=True)
-    source = Column(String(50), nullable=False, index=True)     # civd|lpse|geodipa
+    source = Column(String(50), nullable=False, index=True)     # civd|geodipa
 
     # === Core fields (RF-T-003) ===
     title = Column(Text, nullable=False)

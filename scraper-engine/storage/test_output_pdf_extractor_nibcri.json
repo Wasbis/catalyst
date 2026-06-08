@@ -1,0 +1,158 @@
+{
+  "source_file": "../nibcri.pdf",
+  "total": 38,
+  "data": [
+    {
+      "kbli_code": "46592",
+      "description": "Perdagangan Besar Alat Transportasi Laut, Suku Cadang Dan Perlengkapannya"
+    },
+    {
+      "kbli_code": "78200",
+      "description": "AKTIVITAS PENYEDIAAN TENAGA KERJA WAKTU TERTENTU"
+    },
+    {
+      "kbli_code": "46430",
+      "description": "Perdagangan Besar Alat Fotografi dan Barang Optik"
+    },
+    {
+      "kbli_code": "26513",
+      "description": "Industri Alat Ukur Dan Alat Uji Elektronik"
+    },
+    {
+      "kbli_code": "46699",
+      "description": "Perdagangan Besar Produk Lainnya YTDL"
+    },
+    {
+      "kbli_code": "46639",
+      "description": "Perdagangan Besar Bahan Konstruksi Lainnya"
+    },
+    {
+      "kbli_code": "78300",
+      "description": "Penyediaan Sumber Daya Manusia dan Manajemen Fungsi Sumber Daya Manusia"
+    },
+    {
+      "kbli_code": "46594",
+      "description": "Perdagangan Besar Alat Transportasi Udara, Suku Cadang Dan Perlengkapannya"
+    },
+    {
+      "kbli_code": "96990",
+      "description": "Aktivitas Jasa Perorangan Lainnya YTDL"
+    },
+    {
+      "kbli_code": "71204",
+      "description": "Jasa Inspeksi Teknik Instalasi"
+    },
+    {
+      "kbli_code": "46523",
+      "description": "Perdagangan Besar Peralatan Telekomunikasi"
+    },
+    {
+      "kbli_code": "70209",
+      "description": "Aktivitas Konsultasi Manajemen Lainnya"
+    },
+    {
+      "kbli_code": "46599",
+      "description": "Perdagangan Besar Mesin, Peralatan Dan Perlengkapan Lainnya"
+    },
+    {
+      "kbli_code": "46511",
+      "description": "Perdagangan Besar Komputer dan Perlengkapan Komputer"
+    },
+    {
+      "kbli_code": "46900",
+      "description": "Perdagangan Besar Berbagai Macam Barang"
+    },
+    {
+      "kbli_code": "62090",
+      "description": "Aktivitas Teknologi Informasi Dan Jasa Komputer Lainnya"
+    },
+    {
+      "kbli_code": "58200",
+      "description": "Penerbitan piranti lunak (Software)"
+    },
+    {
+      "kbli_code": "62019",
+      "description": "Aktivitas Pemrograman Komputer Lainnya"
+    },
+    {
+      "kbli_code": "46512",
+      "description": "Perdagangan Besar Piranti Lunak"
+    },
+    {
+      "kbli_code": "63990",
+      "description": "Aktivitas Jasa Informasi Lainnya YTDL"
+    },
+    {
+      "kbli_code": "81300",
+      "description": "Aktivitas Perawatan dan Pemeliharaan Taman"
+    },
+    {
+      "kbli_code": "62024",
+      "description": "Aktivitas Konsultasi dan Perancangan Internet of Things (IoT)"
+    },
+    {
+      "kbli_code": "74115",
+      "description": "Aktivitas Desain Alat Komunikasi dan Elektronika"
+    },
+    {
+      "kbli_code": "74114",
+      "description": "Aktivitas Desain industri strategis dan pertahanan"
+    },
+    {
+      "kbli_code": "42104",
+      "description": "Konstruksi Terowongan"
+    },
+    {
+      "kbli_code": "42103",
+      "description": "Konstruksi Jalan Rel"
+    },
+    {
+      "kbli_code": "42102",
+      "description": "Konstruksi Bangunan Sipil Jembatan, Jalan Layang, Fly Over, dan Underpass"
+    },
+    {
+      "kbli_code": "42101",
+      "description": "Konstruksi Bangunan Sipil Jalan"
+    },
+    {
+      "kbli_code": "42917",
+      "description": "Konstruksi Bangunan Sipil Panas Bumi"
+    },
+    {
+      "kbli_code": "42916",
+      "description": "Konstruksi Bangunan Sipil Pertambangan"
+    },
+    {
+      "kbli_code": "42915",
+      "description": "Konstruksi Bangunan Sipil Minyak dan Gas Bumi"
+    },
+    {
+      "kbli_code": "62029",
+      "description": "Aktivitas Konsultasi Komputer dan Manajemen Fasilitas"
+    },
+    {
+      "kbli_code": "62021",
+      "description": "Aktivitas Konsultasi Keamanan Informasi"
+    },
+    {
+      "kbli_code": "62023",
+      "description": "Aktivitas Penyediaan Sertifikat Elektronik dan Layanan yang Menggunakan Sertifikat Elektronik"
+    },
+    {
+      "kbli_code": "71102",
+      "description": "Aktivitas Keinsinyuran dan Konsultasi Teknis YBDI"
+    },
+    {
+      "kbli_code": "71101",
+      "description": "Aktivitas Arsitektur"
+    },
+    {
+      "kbli_code": "71201",
+      "description": "Jasa Sertifikasi"
+    },
+    {
+      "kbli_code": "82200",
+      "description": "Aktivitas call centre"
+    }
+  ]
+}

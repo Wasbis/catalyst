@@ -86,12 +86,6 @@ async def main(source: str, pages: int):
         print(f"   → {len(civd)} items")
         results.extend(civd)
 
-    if source in ("gep", "all"):
-        print("\n⏳ Scraping GEP... (placeholder, akan return 0)")
-        gep = await scraper.scrape_gep(max_pages=pages)
-        print(f"   → {len(gep)} items")
-        results.extend(gep)
-
     print_summary(results, source)
 
     if results:
@@ -106,7 +100,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test scraper Catalyst secara mandiri")
     parser.add_argument(
         "--source",
-        choices=["geodipa", "civd", "gep", "all"],
+        choices=["geodipa", "civd", "all"],
         default="civd",
         help="Platform yang di-scrape (default: civd)",
     )
