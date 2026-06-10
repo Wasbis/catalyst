@@ -1,26 +1,94 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand */
+  --primary: #003478;
+  --primary-hover: #002a61;
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+
+  /* Main content area — light surfaces */
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-hover: #f1f5f9;
+  --border: #e2e8f0;
+
+  --foreground: #0f172a;
+  --foreground-muted: #64748b;
+  --foreground-subtle: #94a3b8;
+
+  /* Sidebar — dark navy surface */
+  --sidebar-bg: var(--primary);
+  --sidebar-hover: #0a4694;
+  --sidebar-border: #0c4490;
+  --sidebar-foreground: #f1f5f9;
+  --sidebar-foreground-muted: #93a8c9;
+
+  /* Score / recommendation (KEJAR / TINJAU / LEWATI) */
+  --score-high: #22c55e;
+  --score-mid: #eab308;
+  --score-low: #ef4444;
+
+  /* Pipeline stage colors */
+  --stage-ditemukan: #64748b;
+  --stage-ditinjau: #3b82f6;
+  --stage-dikejar: #f59e0b;
+  --stage-diserahkan: #ec4899;
+  --stage-menang: #22c55e;
+  --stage-kalah: #ef4444;
+  --stage-batal: #71717a;
+
+  /* Semantic */
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --success: #22c55e;
+  --warning: #eab308;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+
+  --color-sidebar: var(--sidebar-bg);
+  --color-sidebar-hover: var(--sidebar-hover);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-foreground-muted: var(--sidebar-foreground-muted);
+
+  --color-score-high: var(--score-high);
+  --color-score-mid: var(--score-mid);
+  --color-score-low: var(--score-low);
+
+  --color-stage-ditemukan: var(--stage-ditemukan);
+  --color-stage-ditinjau: var(--stage-ditinjau);
+  --color-stage-dikejar: var(--stage-dikejar);
+  --color-stage-diserahkan: var(--stage-diserahkan);
+  --color-stage-menang: var(--stage-menang);
+  --color-stage-kalah: var(--stage-kalah);
+  --color-stage-batal: var(--stage-batal);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }

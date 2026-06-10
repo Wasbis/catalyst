@@ -24,6 +24,7 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
+from sqlalchemy.orm import relationship
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 
@@ -192,6 +193,86 @@ class TenderResult(Base):
 
     def __repr__(self) -> str:
         return f"<TenderResult [{self.source}] {self.title[:50]}>"
+
+
+# ---------------------------------------------------------------------------
+# ProposalTemplate
+# Python-managed table. Simpan .docx template yang diupload user.
+# ---------------------------------------------------------------------------
+class ProposalTemplate(Base):
+    __tablename__ = "proposal_templates"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    # Type of proposal this template is for, e.g. "IT Project", "Engineering Services"
+    proposal_type = Column(String(100), nullable=True)
+    # JSON list of section heading names to replace for this template type.
+    # Overrides DEFAULT_PROPOSAL_SECTIONS when this template is used.
+    default_sections_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    drafts = relationship("ProposalDraft", back_populates="template")
+
+    def __repr__(self) -> str:
+        return f"<ProposalTemplate '{self.name}' type={self.proposal_type}>"
+
+
+# ---------------------------------------------------------------------------
+# ProposalDraft
+# Draft proposal hasil generate AI, linked ke TenderResult.
+# ---------------------------------------------------------------------------
+class ProposalDraft(Base):
+    __tablename__ = "proposal_drafts"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tender_result_id = Column(Integer, ForeignKey("tender_results.id"), nullable=True, index=True)
+    tender_title = Column(Text, nullable=False)
+    kbli_code = Column(String(20), nullable=True)
+    kbli_description = Column(Text, nullable=True)
+    company_name = Column(String(255), nullable=True)
+    template_id = Column(String, ForeignKey("proposal_templates.id"), nullable=True)
+    status = Column(String(20), default="draft", nullable=False)  # draft | review | final
+    generated_by = Column(String(100), nullable=True)  # claude-haiku | template
+    # JSON list of {phase, activities, duration, notes} imported from Excel timeline
+    timeline_data_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+    blocks = relationship(
+        "ProposalBlock",
+        back_populates="draft",
+        order_by="ProposalBlock.order",
+        cascade="all, delete-orphan",
+    )
+    template = relationship("ProposalTemplate", back_populates="drafts")
+
+    def __repr__(self) -> str:
+        return f"<ProposalDraft '{self.tender_title[:40]}' {self.status}>"
+
+
+# ---------------------------------------------------------------------------
+# ProposalBlock
+# Satu bagian/section di dalam ProposalDraft. User bisa edit per-block.
+# ---------------------------------------------------------------------------
+class ProposalBlock(Base):
+    __tablename__ = "proposal_blocks"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    draft_id = Column(String, ForeignKey("proposal_drafts.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    # JSON list of {title, content} sub-sections (Heading 2 level)
+    subsections_json = Column(Text, nullable=True)
+    order = Column(Integer, nullable=False)
+    is_approved = Column(Boolean, default=False, nullable=False)
+    user_comment = Column(Text, nullable=True)
+
+    draft = relationship("ProposalDraft", back_populates="blocks")
+
+    def __repr__(self) -> str:
+        return f"<ProposalBlock '{self.title}' order={self.order}>"
 
 
 # ---------------------------------------------------------------------------

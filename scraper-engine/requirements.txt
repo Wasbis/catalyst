@@ -11,3 +11,5 @@ numpy
 pdfplumber
 python-docx
 python-multipart
+anthropic
+openpyxl

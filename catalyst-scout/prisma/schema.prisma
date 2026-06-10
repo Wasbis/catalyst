@@ -6,7 +6,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ==========================================================================
@@ -17,6 +16,7 @@ model User {
   id            String         @id @default(uuid())
   name          String
   email         String         @unique
+  passwordHash  String
   role          String         @default("engineer") // 'admin' | 'engineer' | 'manager'
   createdAt     DateTime       @default(now())
   tasks         TenderTask[]
@@ -73,56 +73,81 @@ model ScraperSetting {
   updatedAt    DateTime  @updatedAt
 }
 
+// Log tiap kali scraper jalan (RF-T-012, RF-T-013) — dikelola scraper-engine (SQLAlchemy)
+model ScrapingJob {
+  id                  Int       @id @default(autoincrement())
+  source              String    @db.VarChar(50) // 'civd' | 'geodipa'
+  trigger             String?   @db.VarChar(20) // 'scheduled' | 'manual'
+  status              String    @db.VarChar(20) // 'running' | 'success' | 'failed'
+  startedAt           DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt          DateTime? @map("finished_at") @db.Timestamptz(6)
+  tendersFound        Int?      @map("tenders_found")
+  tendersNew          Int?      @map("tenders_new")
+  tendersUpdated      Int?      @map("tenders_updated")
+  errorMessage        String?   @map("error_message")
+  consecutiveFailures Int       @map("consecutive_failures")
+
+  tenderResults TenderResult[]
+
+  @@index([source])
+  @@map("scraping_jobs")
+}
+
 // ==========================================================================
 // TENDER — 2 lapisan:
 //   TenderResult : data mentah hasil scraper (staging)
 //   Tender       : lead yang sudah dievaluasi & dikelola tim
 // ==========================================================================
 
-// Raw scrape result — ditulis scraper Python, tidak disentuh user langsung
+// Raw scrape result — dikelola scraper-engine (SQLAlchemy), map ke tabel tender_results existing
 model TenderResult {
-  id                    Int      @id @default(autoincrement())
-  source                String   // 'geodipa' | 'civd' | 'gep'
-  title                 String   @db.Text
-  agency                String?
+  id     Int    @id @default(autoincrement())
+  source String @db.VarChar(50) // 'civd' | 'geodipa'
 
-  // URL — kosong untuk CIVD (tidak ada halaman detail terpisah)
-  detailUrl             String?  @db.Text
+  title       String
+  agency      String? @db.VarChar(255)
+  description String?
 
-  // Teks gabungan untuk AI matching
-  tenderText            String?  @db.Text
+  budgetEstimated BigInt?   @map("budget_estimated")
+  deadlineText    String?   @map("deadline_text") @db.VarChar(100)
+  deadlineDate    DateTime? @map("deadline_date") @db.Date
+  sourceUrl       String?   @map("source_url")
 
-  // Lampiran
-  docUrl                String?  @db.Text
-  docFilesJson          String?  @db.Text // JSON array attachment
+  // Dedup — MD5 hash, dihitung scraper-engine per source
+  fingerprint String @unique @db.VarChar(64)
 
-  // Hasil AI matching (diisi setelah proses matching)
-  matchedKbli           String?
-  matchScore            Float?
+  // AI matching & scoring (RF-T-006, RF-T-007)
+  tenderText      String? @map("tender_text")
+  kbliCodesJson   String? @map("kbli_codes_json")
+  kbliMatchedJson String? @map("kbli_matched_json")
+  matchScore      Int?    @map("match_score")
+  recommendation  String? @db.VarChar(10) // KEJAR | TINJAU | LEWATI
 
-  // Field khusus CIVD
-  announcementType      Int?     // 1=PQ | 2=Tender | 3=Pemilihan
-  announcementTypeLabel String?
-  golonganUsahaJson     String?  @db.Text // JSON array
-  jenisPengadaan        String?
-  bidangUsahaJson       String?  @db.Text // JSON array
+  // Status manajemen (RF-T-009): DITEMUKAN -> DITINJAU -> DIKEJAR -> DISERAHKAN -> MENANG / KALAH / BATAL
+  status String @db.VarChar(20)
 
-  // Waktu
-  deadlineText          String?
-  publishDate           String?
+  notes              String?
+  convertedToProject Boolean @map("converted_to_project") // true = sudah dikonversi ke project App 2
+  projectId          Int?    @map("project_id") // ref ke project App 2 setelah konversi
 
-  // Dedup — MD5 hash title+agency+source
-  fingerprint           String?  @unique
+  // Lampiran & metadata khusus per platform (mis. CIVD: announcement_type, golongan_usaha, dll)
+  docFilesJson       String? @map("doc_files_json")
+  sourceMetadataJson String? @map("source_metadata_json")
+  isMasked           Boolean @map("is_masked")
 
-  scrapedAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  scrapedAt DateTime  @default(now()) @map("scraped_at") @db.Timestamptz(6)
+  updatedAt DateTime? @map("updated_at") @db.Timestamptz(6)
+
+  scrapingJobId Int?         @map("scraping_job_id")
+  scrapingJob   ScrapingJob? @relation(fields: [scrapingJobId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  proposalDrafts ProposalDraft[]
 
   // Setelah dievaluasi, bisa dipromote ke Tender
-  promotedTender        Tender?
+  promotedTender Tender?
 
   @@index([source])
-  @@index([scrapedAt])
-  @@index([matchedKbli])
+  @@map("tender_results")
 }
 
 // Lead aktif yang dikelola tim — hasil promote dari TenderResult
@@ -156,7 +181,6 @@ model Tender {
   updatedAt         DateTime   @updatedAt
 
   tasks             TenderTask[]
-  proposalDraft     ProposalDraft?
 
   @@index([status])
   @@index([matchedKbliCode])
@@ -195,38 +219,72 @@ model KnowledgeBase {
   uploadedAt DateTime @default(now())
 }
 
+// Template .docx untuk proposal — dikelola scraper-engine (SQLAlchemy), map ke proposal_templates existing
 model ProposalTemplate {
-  id        String   @id @default(uuid())
-  name      String
-  filePath  String   // Path ke .docx template CRI
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id       String  @id @default(uuid()) @db.VarChar
+  name     String  @db.VarChar(255)
+  filePath String  @map("file_path") @db.VarChar(500) // Path ke .docx template
+  isActive Boolean @map("is_active")
+
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Tipe proposal (mis. "IT Project", "Engineering Services") & override section headings
+  proposalType        String? @map("proposal_type") @db.VarChar(100)
+  defaultSectionsJson String? @map("default_sections_json")
+
+  proposalDrafts ProposalDraft[]
+
+  @@map("proposal_templates")
 }
 
+// Draft proposal hasil generate AI — dikelola scraper-engine (SQLAlchemy), map ke proposal_drafts existing
 model ProposalDraft {
-  id       String          @id @default(uuid())
-  tenderId String          @unique
-  tender   Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  status   String          @default("analysis")
-  // 'analysis' | 'drafting' | 'review' | 'final'
-  blocks   ProposalBlock[]
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id String @id @default(uuid()) @db.VarChar
+
+  tenderResultId Int?          @map("tender_result_id")
+  tenderResult   TenderResult? @relation(fields: [tenderResultId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  tenderTitle     String  @map("tender_title")
+  kbliCode        String? @map("kbli_code") @db.VarChar(20)
+  kbliDescription String? @map("kbli_description")
+  companyName     String? @map("company_name") @db.VarChar(255)
+
+  templateId String?           @map("template_id") @db.VarChar
+  template   ProposalTemplate? @relation(fields: [templateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  status      String  @db.VarChar(20) // 'draft' | 'review' | 'final'
+  generatedBy String? @map("generated_by") @db.VarChar(100) // 'claude-haiku' | 'template'
+
+  // JSON list {phase, activities, duration, notes} dari import Excel timeline
+  timelineDataJson String? @map("timeline_data_json")
+
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime? @map("updated_at") @db.Timestamptz(6)
+
+  blocks ProposalBlock[]
+
+  @@index([tenderResultId])
+  @@map("proposal_drafts")
 }
 
+// Satu bagian/section di dalam ProposalDraft — map ke proposal_blocks existing
 model ProposalBlock {
-  id           String        @id @default(uuid())
-  draftId      String
-  draft        ProposalDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
-  title        String        // "Latar Belakang" | "Metodologi" | "Jadwal" dll
-  content      String        @db.Text
-  aiSourceData String?       @db.Text // Referensi dokumen RAG yang dipakai
-  userComment  String?       @db.Text // Feedback reviewer untuk revisi AI
-  isApproved   Boolean       @default(false)
-  order        Int           // Urutan blok di dokumen final
+  id      String @id @default(uuid()) @db.VarChar
+  draftId String @map("draft_id") @db.VarChar
+  draft   ProposalDraft @relation(fields: [draftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  title   String // "Latar Belakang" | "Metodologi" | "Jadwal" dll
+  content String
+  order   Int    // Urutan blok di dokumen final
+
+  // JSON list {title, content} sub-section level Heading 2
+  subsectionsJson String? @map("subsections_json")
+
+  isApproved  Boolean @map("is_approved")
+  userComment String? @map("user_comment") // Feedback reviewer untuk revisi AI
 
   @@index([draftId])
-  @@index([order])
+  @@map("proposal_blocks")
 }
 
 // ==========================================================================

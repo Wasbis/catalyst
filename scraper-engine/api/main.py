@@ -1,20 +1,24 @@
 import asyncio
 import hashlib
+import io
 import json
 import logging
+import os
 from datetime import datetime, date as date_type, timezone, timedelta
+from pathlib import Path
 from typing import List, Optional
 
 WIB = timezone(timedelta(hours=7))
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 # Services
 from api.services.ai_matcher import semantic_kbli_match
 from api.services.ai_proposal_agent import AIProposalAgent
+from api.services.docx_generator import DocxGenerator
 from api.services.masking_services import MaskingService
 from api.services.pdf_extractor import extract_kbli_from_nib
 from api.services.scraper import CatalystScraper
@@ -23,11 +27,17 @@ from api.services.scraper import CatalystScraper
 from api.models.database import (
     MasterKbli,
     Notification,
+    ProposalBlock,
+    ProposalDraft,
+    ProposalTemplate,
     ScrapingJob,
     TenderResult,
     get_db,
     init_db,
 )
+
+PROPOSAL_TEMPLATES_DIR = Path(__file__).parent.parent.parent / "storage" / "proposal_templates"
+PROPOSAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
@@ -144,6 +154,27 @@ class ProposalRequest(BaseModel):
     kbli_description: str
     company_name: Optional[str] = "[NAMA PERUSAHAAN]"
     use_masking: Optional[bool] = True
+
+
+class GenerateProposalFromTenderRequest(BaseModel):
+    tender_result_id: int
+    template_id: Optional[str] = None
+    company_name: Optional[str] = "PT Cliste Rekayasa Indonesia"
+    use_masking: Optional[bool] = True
+    sections_to_replace: Optional[List[str]] = None  # None → default sections
+
+
+class UpdateProposalBlockRequest(BaseModel):
+    content: Optional[str] = None
+    user_comment: Optional[str] = None
+    is_approved: Optional[bool] = None
+
+
+class UpdateProposalTemplateRequest(BaseModel):
+    name: Optional[str] = None
+    proposal_type: Optional[str] = None
+    default_sections: Optional[List[str]] = None
+    is_active: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -798,21 +829,616 @@ def generate_proposal(
 
 
 # ---------------------------------------------------------------------------
-# RF-T-008 — Notifikasi tender skor tinggi
+# ENDPOINTS — PROPOSAL TEMPLATES (harus didaftarkan sebelum /{draft_id})
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/proposals/templates", tags=["proposal"])
+def list_proposal_templates(db: Session = Depends(get_db)):
+    """Daftar semua template .docx yang sudah diupload."""
+    templates = db.query(ProposalTemplate).order_by(ProposalTemplate.created_at.desc()).all()
+    return {
+        "status": "success",
+        "data": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "is_active": t.is_active,
+                "proposal_type": t.proposal_type,
+                "default_sections": json.loads(t.default_sections_json) if t.default_sections_json else None,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in templates
+        ],
+    }
+
+
+@app.post("/api/v1/proposals/templates", tags=["proposal"])
+async def upload_proposal_template(
+    file: UploadFile = File(...),
+    proposal_type: Optional[str] = Form(None),
+    default_sections: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload file .docx sebagai template proposal.
+
+    - `proposal_type`: jenis proposal, e.g. "IT Project", "Engineering Services" (optional)
+    - `default_sections`: JSON array nama section Heading 1 yang akan di-replace, e.g.
+      '["BACKGROUND","METHODOLOGY"]'. Kalau kosong, pakai DEFAULT_PROPOSAL_SECTIONS.
+    """
+    if not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="File harus berformat .docx")
+
+    validated_sections_json: Optional[str] = None
+    if default_sections:
+        try:
+            parsed = json.loads(default_sections)
+            if not isinstance(parsed, list):
+                raise ValueError("default_sections harus berupa JSON array.")
+            validated_sections_json = json.dumps([str(s) for s in parsed])
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Format default_sections tidak valid: {exc}")
+
+    try:
+        content = await file.read()
+        safe_name = file.filename.replace(" ", "_")
+        dest = PROPOSAL_TEMPLATES_DIR / safe_name
+        dest.write_bytes(content)
+
+        template = ProposalTemplate(
+            name=file.filename,
+            file_path=str(dest),
+            proposal_type=proposal_type,
+            default_sections_json=validated_sections_json,
+        )
+        db.add(template)
+        db.commit()
+        db.refresh(template)
+
+        return {
+            "status": "success",
+            "message": f"Template '{file.filename}' berhasil diupload.",
+            "data": {
+                "id": template.id,
+                "name": template.name,
+                "proposal_type": template.proposal_type,
+                "default_sections": json.loads(template.default_sections_json) if template.default_sections_json else None,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error upload template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal menyimpan template.")
+
+
+@app.put("/api/v1/proposals/templates/{template_id}", tags=["proposal"])
+def update_proposal_template(
+    template_id: str,
+    req: UpdateProposalTemplateRequest,
+    db: Session = Depends(get_db),
+):
+    """Update metadata template: name, proposal_type, default_sections, is_active."""
+    template = db.query(ProposalTemplate).filter(ProposalTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+
+    if req.name is not None:
+        template.name = req.name
+    if req.proposal_type is not None:
+        template.proposal_type = req.proposal_type
+    if req.default_sections is not None:
+        template.default_sections_json = json.dumps(req.default_sections)
+    if req.is_active is not None:
+        template.is_active = req.is_active
+
+    db.commit()
+    db.refresh(template)
+
+    return {
+        "status": "success",
+        "data": {
+            "id": template.id,
+            "name": template.name,
+            "is_active": template.is_active,
+            "proposal_type": template.proposal_type,
+            "default_sections": json.loads(template.default_sections_json) if template.default_sections_json else None,
+            "created_at": template.created_at.isoformat() if template.created_at else None,
+        },
+    }
+
+
+@app.delete("/api/v1/proposals/templates/{template_id}", tags=["proposal"])
+def delete_proposal_template(template_id: str, db: Session = Depends(get_db)):
+    """Hapus template proposal beserta file .docx-nya."""
+    template = db.query(ProposalTemplate).filter(ProposalTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+
+    drafts_count = db.query(ProposalDraft).filter(ProposalDraft.template_id == template_id).count()
+    if drafts_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Template masih dipakai oleh {drafts_count} proposal draft. Lepas referensi draft tersebut dulu sebelum menghapus template.",
+        )
+
+    if os.path.exists(template.file_path):
+        os.remove(template.file_path)
+
+    db.delete(template)
+    db.commit()
+
+    return {"status": "success", "message": f"Template '{template.name}' berhasil dihapus."}
+
+
+# ---------------------------------------------------------------------------
+# ENDPOINTS — PROPOSAL CRUD
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/proposals", tags=["proposal"])
+def create_proposal_draft(
+    req: GenerateProposalFromTenderRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate proposal dari TenderResult yang sudah ada di DB, lalu simpan sebagai ProposalDraft.
+
+    Pipeline:
+    1. Ambil TenderResult dari DB
+    2. Mask tender_text (opsional)
+    3. Generate blocks via AIProposalAgent (Claude API atau template fallback)
+    4. Unmask blocks
+    5. Simpan ProposalDraft + ProposalBlock ke DB
+    """
+    tender = db.query(TenderResult).filter(TenderResult.id == req.tender_result_id).first()
+    if not tender:
+        raise HTTPException(
+            status_code=404,
+            detail=f"TenderResult id={req.tender_result_id} tidak ditemukan.",
+        )
+
+    # Hapus draft lama jika ada, biar tidak duplikat per tender
+    existing = (
+        db.query(ProposalDraft)
+        .filter(ProposalDraft.tender_result_id == req.tender_result_id)
+        .first()
+    )
+    if existing:
+        db.delete(existing)
+        db.commit()
+
+    try:
+        masking = MaskingService.from_db(db) if req.use_masking else None
+        tender_text = tender.tender_text or tender.description or tender.title
+        masked_text = masking.mask_text(tender_text) if masking else tender_text
+
+        kbli_code = ""
+        kbli_description = ""
+        if tender.kbli_matched_json:
+            try:
+                matched = json.loads(tender.kbli_matched_json)
+                if matched:
+                    kbli_code = matched[0].get("kbli_code", "")
+                    kbli_description = matched[0].get("description", "")
+            except (json.JSONDecodeError, IndexError, KeyError):
+                pass
+
+        # Resolve sections: explicit request → template default → AIProposalAgent default
+        sections_override = req.sections_to_replace
+        if not sections_override and req.template_id:
+            tmpl_for_sections = db.query(ProposalTemplate).filter(
+                ProposalTemplate.id == req.template_id
+            ).first()
+            if tmpl_for_sections and tmpl_for_sections.default_sections_json:
+                try:
+                    sections_override = json.loads(tmpl_for_sections.default_sections_json)
+                except json.JSONDecodeError:
+                    pass
+
+        agent = AIProposalAgent()
+        result = agent.generate_proposal(
+            tender_title=tender.title,
+            tender_text=masked_text,
+            kbli_code=kbli_code,
+            kbli_description=kbli_description,
+            company_name=req.company_name,
+            sections=sections_override,
+        )
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result.get("error", "Gagal generate proposal."))
+
+        # Unmask setiap block
+        blocks_raw = result["blocks"]
+        if masking:
+            for block in blocks_raw:
+                block["content"] = masking.unmask_text(block["content"])
+
+        draft = ProposalDraft(
+            tender_result_id=tender.id,
+            tender_title=tender.title,
+            kbli_code=kbli_code,
+            kbli_description=kbli_description,
+            company_name=req.company_name,
+            template_id=req.template_id,
+            status="draft",
+            generated_by=result.get("metadata", {}).get("generated_by", "unknown"),
+        )
+        db.add(draft)
+        db.flush()
+
+        for i, block_data in enumerate(blocks_raw):
+            subs = block_data.get("subsections")
+            db.add(ProposalBlock(
+                draft_id=draft.id,
+                title=block_data["title"],
+                content=block_data["content"],
+                subsections_json=json.dumps(subs) if subs else None,
+                order=i,
+            ))
+
+        db.commit()
+        db.refresh(draft)
+
+        return {
+            "status": "success",
+            "message": "Draft proposal berhasil digenerate dan disimpan.",
+            "data": {
+                "draft_id": draft.id,
+                "tender_title": draft.tender_title,
+                "generated_by": draft.generated_by,
+                "status": draft.status,
+                "blocks": [
+                    {
+                        "id": b.id,
+                        "title": b.title,
+                        "content": b.content,
+                        "subsections": json.loads(b.subsections_json) if b.subsections_json else [],
+                        "order": b.order,
+                        "is_approved": b.is_approved,
+                    }
+                    for b in sorted(draft.blocks, key=lambda x: x.order)
+                ],
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error create proposal draft: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal membuat draft proposal.")
+
+
+# ---------------------------------------------------------------------------
+# ENDPOINTS — TIMELINE EXCEL
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/proposals/timeline-template", tags=["proposal"])
+def download_timeline_template():
+    """
+    Download template Excel untuk pengisian timeline proyek.
+
+    Kolom: No. | Phase / Activity | Duration | Notes
+    """
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl tidak terinstall.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Timeline"
+
+    headers = ["No.", "Phase / Activity", "Duration", "Notes"]
+    ws.append(headers)
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    header_align = Alignment(horizontal="center", vertical="center")
+    for col_idx, _ in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+
+    ws.column_dimensions["A"].width = 6
+    ws.column_dimensions["B"].width = 40
+    ws.column_dimensions["C"].width = 20
+    ws.column_dimensions["D"].width = 30
+
+    example_rows = [
+        [1, "Kickoff & Requirements Gathering", "1–2 weeks", "Initial scoping and stakeholder interviews"],
+        [2, "Design & Planning", "2 weeks", "Architecture, detailed project plan"],
+        [3, "Execution / Implementation", "8 weeks", "Core delivery phase"],
+        [4, "Testing & Validation", "2 weeks", "UAT and quality assurance"],
+        [5, "Handover & Support", "1 week", "Documentation, training, go-live"],
+    ]
+    for row in example_rows:
+        ws.append(row)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="timeline_template.xlsx"'},
+    )
+
+
+@app.get("/api/v1/proposals/{draft_id}", tags=["proposal"])
+def get_proposal_draft(draft_id: str, db: Session = Depends(get_db)):
+    """Ambil draft proposal beserta semua block-nya."""
+    draft = db.query(ProposalDraft).filter(ProposalDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail=f"Draft id={draft_id} tidak ditemukan.")
+
+    return {
+        "status": "success",
+        "data": {
+            "draft_id": draft.id,
+            "tender_result_id": draft.tender_result_id,
+            "tender_title": draft.tender_title,
+            "kbli_code": draft.kbli_code,
+            "kbli_description": draft.kbli_description,
+            "company_name": draft.company_name,
+            "template_id": draft.template_id,
+            "status": draft.status,
+            "generated_by": draft.generated_by,
+            "created_at": draft.created_at.isoformat() if draft.created_at else None,
+            "updated_at": draft.updated_at.isoformat() if draft.updated_at else None,
+            "blocks": [
+                {
+                    "id": b.id,
+                    "title": b.title,
+                    "content": b.content,
+                    "subsections": json.loads(b.subsections_json) if b.subsections_json else [],
+                    "order": b.order,
+                    "is_approved": b.is_approved,
+                    "user_comment": b.user_comment,
+                }
+                for b in sorted(draft.blocks, key=lambda x: x.order)
+            ],
+        },
+    }
+
+
+@app.put("/api/v1/proposals/blocks/{block_id}", tags=["proposal"])
+def update_proposal_block(
+    block_id: str,
+    req: UpdateProposalBlockRequest,
+    db: Session = Depends(get_db),
+):
+    """Update konten, komentar, atau status approved sebuah block."""
+    block = db.query(ProposalBlock).filter(ProposalBlock.id == block_id).first()
+    if not block:
+        raise HTTPException(status_code=404, detail=f"Block id={block_id} tidak ditemukan.")
+
+    if req.content is not None:
+        block.content = req.content
+    if req.user_comment is not None:
+        block.user_comment = req.user_comment
+    if req.is_approved is not None:
+        block.is_approved = req.is_approved
+
+    db.commit()
+    db.refresh(block)
+
+    return {
+        "status": "success",
+        "message": "Block berhasil diupdate.",
+        "data": {
+            "id": block.id,
+            "title": block.title,
+            "content": block.content,
+            "is_approved": block.is_approved,
+            "user_comment": block.user_comment,
+        },
+    }
+
+
+@app.get("/api/v1/proposals/{draft_id}/export", tags=["proposal"])
+def export_proposal_docx(draft_id: str, db: Session = Depends(get_db)):
+    """
+    Generate file .docx dari draft proposal dan kembalikan sebagai download.
+
+    Jika draft punya template_id, pakai template tersebut untuk mengisi placeholder.
+    Jika tidak, generate .docx dari scratch.
+    """
+    draft = db.query(ProposalDraft).filter(ProposalDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail=f"Draft id={draft_id} tidak ditemukan.")
+
+    blocks = [
+        {
+            "title": b.title,
+            "content": b.content,
+            "subsections": json.loads(b.subsections_json) if b.subsections_json else [],
+        }
+        for b in sorted(draft.blocks, key=lambda x: x.order)
+    ]
+    metadata = {
+        "tender_title": draft.tender_title,
+        "company_name": draft.company_name or "",
+        "kbli_code": draft.kbli_code or "",
+        "kbli_description": draft.kbli_description or "",
+    }
+
+    timeline_data: Optional[List[dict]] = None
+    if draft.timeline_data_json:
+        try:
+            timeline_data = json.loads(draft.timeline_data_json)
+        except json.JSONDecodeError:
+            pass
+
+    template_path = None
+    if draft.template_id:
+        tmpl = db.query(ProposalTemplate).filter(ProposalTemplate.id == draft.template_id).first()
+        if tmpl and os.path.exists(tmpl.file_path):
+            template_path = tmpl.file_path
+
+    try:
+        generator = DocxGenerator()
+        sections_to_replace = [b["title"].upper() for b in blocks]
+        docx_bytes = generator.generate(
+            blocks, metadata,
+            template_path=template_path,
+            sections_to_replace=sections_to_replace,
+            timeline_data=timeline_data,
+        )
+    except Exception as e:
+        logger.error(f"Error export docx: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal generate file .docx.")
+
+    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in draft.tender_title)[:60]
+    filename = f"proposal_{safe_title}.docx"
+
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+
+@app.post("/api/v1/proposals/{draft_id}/import-timeline", tags=["proposal"])
+async def import_timeline(
+    draft_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Import timeline dari file Excel (.xlsx) ke dalam draft proposal.
+
+    Format kolom yang diharapkan (baris pertama = header, baris selanjutnya = data):
+      No. | Phase / Activity | Duration | Notes
+
+    Timeline disimpan ke `ProposalDraft.timeline_data_json` dan konten block
+    DURATION & COMMERCIAL diupdate dengan ringkasan fase-fase yang diimport.
+    """
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="File harus berformat .xlsx")
+
+    draft = db.query(ProposalDraft).filter(ProposalDraft.id == draft_id).first()
+    if not draft:
+        raise HTTPException(status_code=404, detail=f"Draft id={draft_id} tidak ditemukan.")
+
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl tidak terinstall.")
+
+    try:
+        raw_bytes = await file.read()
+        wb = openpyxl.load_workbook(filename=io.BytesIO(raw_bytes), data_only=True)
+        ws = wb.active
+
+        rows = list(ws.iter_rows(values_only=True))
+        if len(rows) < 2:
+            raise HTTPException(status_code=400, detail="File Excel kosong atau hanya berisi header.")
+
+        timeline_rows = []
+        for row in rows[1:]:  # skip header
+            phase_val = row[0] if len(row) > 0 else None
+            activity_val = row[1] if len(row) > 1 else ""
+            duration_val = row[2] if len(row) > 2 else ""
+            notes_val = row[3] if len(row) > 3 else ""
+
+            if not activity_val:
+                continue
+
+            timeline_rows.append({
+                "phase": str(phase_val) if phase_val is not None else str(len(timeline_rows) + 1),
+                "activities": str(activity_val),
+                "duration": str(duration_val) if duration_val else "",
+                "notes": str(notes_val) if notes_val else "",
+            })
+
+        if not timeline_rows:
+            raise HTTPException(status_code=400, detail="Tidak ada baris data timeline yang valid di file Excel.")
+
+        draft.timeline_data_json = json.dumps(timeline_rows)
+
+        # Update DURATION & COMMERCIAL block content with imported timeline summary
+        duration_block = next(
+            (b for b in draft.blocks if b.title.strip().upper() == "DURATION & COMMERCIAL"),
+            None,
+        )
+        if duration_block:
+            lines = [f"Phase {r['phase']}: {r['activities']} — {r['duration']}" for r in timeline_rows]
+            duration_block.content = (
+                "The following project timeline has been defined based on the imported schedule:\n\n"
+                + "\n".join(lines)
+                + "\n\nDetailed Gantt chart and schedule available upon request."
+            )
+
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": f"Timeline berhasil diimport ({len(timeline_rows)} baris).",
+            "data": {"draft_id": draft_id, "timeline": timeline_rows},
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error import timeline: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal mengimport file timeline.")
+
+
+# ---------------------------------------------------------------------------
+# RF-T-006/RF-T-007 — Semantic KBLI scoring untuk pipeline scrape→save
 # ---------------------------------------------------------------------------
 HIGH_SCORE_THRESHOLD = 70
+MID_SCORE_THRESHOLD = 40
 
 
+def _recommendation_from_score(score: int) -> str:
+    if score >= HIGH_SCORE_THRESHOLD:
+        return "KEJAR"
+    if score >= MID_SCORE_THRESHOLD:
+        return "TINJAU"
+    return "LEWATI"
+
+
+def _score_tender_against_kbli(
+    text: str, kbli_dicts: List[dict], masking: Optional["MaskingService"]
+) -> tuple[Optional[int], Optional[str], list]:
+    """
+    Jalankan semantic KBLI matching untuk satu tender hasil scrape sebelum
+    disimpan, supaya `match_score`/`recommendation`/`kbli_matched_json` keisi
+    (sebelumnya selalu None — scraper cuma nulis placeholder, lihat todo.md).
+    Skor dari `semantic_kbli_match` berupa cosine similarity 0-1, dikonversi
+    ke integer 0-100 supaya selaras kolom `TenderResult.match_score`.
+    """
+    if not text or not kbli_dicts:
+        return None, None, []
+
+    text_to_process = masking.mask_text(text) if masking else text
+    result = semantic_kbli_match(text_to_process, kbli_dicts)
+    if not result:
+        return None, None, []
+
+    if masking:
+        result["description"] = masking.unmask_text(result.get("description", ""))
+
+    score = round(result["score"] * 100)
+    return score, _recommendation_from_score(score), [result]
+
+
+# ---------------------------------------------------------------------------
+# RF-T-008 — Notifikasi tender skor tinggi
+# ---------------------------------------------------------------------------
 def _notify_on_high_score_tender(db: Session, tender: TenderResult) -> None:
     """
     Kirim notifikasi ke admin begitu tender BARU yang baru disimpan punya
-    `match_score` >= HIGH_SCORE_THRESHOLD.
-
-    CATATAN PENTING: saat ini scraper (civd_scraper.py/geodipa_scraper.py) selalu
-    menyimpan `match_score=None` — AI scoring (RF-T-006/RF-T-007, semantic match
-    via `semantic_kbli_match`) belum di-wire ke pipeline scrape→save, jadi trigger
-    ini "siap pakai" tapi belum akan benar-benar terpicu sampai scoring itu
-    diintegrasikan. Lihat catatan di todo.md.
+    `match_score` >= HIGH_SCORE_THRESHOLD (diisi oleh `_score_tender_against_kbli`
+    di `_run_scraper_task` sebelum tender disimpan).
     """
     if tender.match_score is None or tender.match_score < HIGH_SCORE_THRESHOLD:
         return
@@ -927,6 +1553,19 @@ async def _run_scraper_task(
     scraper = CatalystScraper()
     total_found = total_saved = total_updated = 0
     total_skipped_fp = total_skipped_url = total_failed = 0
+
+    # ── RF-T-006/007: load Master KBLI + masking sekali di awal run ─────────
+    # supaya tiap tender baru langsung di-scoring sebelum disimpan (lihat
+    # _score_tender_against_kbli), bukan cuma lewat endpoint /match-kbli manual.
+    _kbli_rows = db.query(MasterKbli).filter(MasterKbli.is_active == True).all()
+    _kbli_dicts = [
+        {"kbli_code": r.kbli_code, "description": r.description} for r in _kbli_rows
+    ]
+    _masking = MaskingService.from_db(db)
+    if not _kbli_dicts:
+        logger.warning(
+            "[TASK] Master KBLI kosong — tender baru akan tersimpan tanpa match_score."
+        )
 
     try:
         for platform in platforms:
@@ -1043,6 +1682,15 @@ async def _run_scraper_task(
                             except (ValueError, TypeError):
                                 pass
 
+                        # RF-T-006/007: scoring semantic KBLI sebelum disimpan
+                        _tender_text = (
+                            item.get("tender_text")
+                            or item.get("requirement_text", "")
+                        )
+                        _match_score, _recommendation, _kbli_matched = (
+                            _score_tender_against_kbli(_tender_text, _kbli_dicts, _masking)
+                        )
+
                         # Save per-item biar error 1 row gak rollback semua
                         try:
                             new_tender = TenderResult(
@@ -1054,18 +1702,15 @@ async def _run_scraper_task(
                                     deadline_text=item.get("deadline_text", ""),
                                     deadline_date=deadline_date,
                                     source_url=item.get("source_url", ""),
-                                    tender_text=(
-                                        item.get("tender_text")
-                                        or item.get("requirement_text", "")
-                                    ),
+                                    tender_text=_tender_text,
                                     kbli_codes_json=json.dumps(
                                         item.get("kbli_codes", []), ensure_ascii=False
                                     ),
                                     kbli_matched_json=json.dumps(
-                                        item.get("kbli_matched", []), ensure_ascii=False
+                                        _kbli_matched, ensure_ascii=False
                                     ),
-                                    match_score=item.get("match_score"),
-                                    recommendation=item.get("recommendation"),
+                                    match_score=_match_score,
+                                    recommendation=_recommendation,
                                     status=item.get("status", "DITEMUKAN"),
                                     doc_files_json=json.dumps(
                                         item.get("doc_files", []), ensure_ascii=False

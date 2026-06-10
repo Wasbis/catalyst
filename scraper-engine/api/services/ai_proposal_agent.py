@@ -1,29 +1,67 @@
+import json
 import logging
+import os
 import re
-from typing import Dict, Any, Optional
-from sentence_transformers import SentenceTransformer
-import numpy as np
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Load model sekali saat import
-model = SentenceTransformer("all-MiniLM-L6-v2")
+DEFAULT_PROPOSAL_SECTIONS: List[str] = [
+    "BACKGROUND",
+    "INTRODUCTION",
+    "SUMMARY",
+    "DURATION & COMMERCIAL",
+    "PROPOSED SOLUTION",
+    "METHODOLOGY",
+]
+
+# Per-section writing guidelines used in the Claude prompt.
+# Use {company_name} as a format placeholder where needed.
+_SECTION_GUIDELINES: Dict[str, str] = {
+    "BACKGROUND": (
+        "Context of the client's operational challenges or industry need that makes this project "
+        "necessary. Reference the specific domain from the KBLI field."
+    ),
+    "INTRODUCTION": (
+        "Brief introduction of {company_name} and how CRI's capabilities, experience, and expertise "
+        "are directly relevant to this specific project."
+    ),
+    "SUMMARY": (
+        "Concise summary of the proposal: scope of work, key deliverables, approach, and timeline. "
+        "Use structured bullet points."
+    ),
+    "DURATION & COMMERCIAL": (
+        "Project timeline breakdown by phase with estimated duration per phase. "
+        "Include sub-sections for 'Work Duration & Schedule' and 'Terms & Conditions'. "
+        "Do NOT include pricing — the pricing table is filled manually."
+    ),
+    "PROPOSED SOLUTION": (
+        "Detailed description of the specific solution {company_name} proposes for this project: "
+        "system architecture, key features, modules, or components that directly address the client's needs. "
+        "Be specific to the tender — not generic. Include 2–3 sub-sections for major solution components."
+    ),
+    "METHODOLOGY": (
+        "Detailed technical approach: specific phases, methods, tools, and deliverables. "
+        "Explain step-by-step how {company_name} will execute this project. "
+        "Include sub-sections for each major phase."
+    ),
+}
 
 
 class AIProposalAgent:
-    """
-    Agent untuk generate draft proposal teknis berdasarkan tender.
-
-    Pipeline:
-    1. Parse tender_text untuk ekstrak key requirements, metodologi, timeline
-    2. Gunakan semantic similarity untuk cari bagian relevan dari tender
-    3. Generate proposal berkualitas dengan struktur standar CRI
-    4. Return proposal text yang siap di-review dan di-edit
-    """
-
     def __init__(self):
-        self.model = model
-        self.logger = logging.getLogger(__name__)
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        self._client = None
+        if api_key:
+            try:
+                import anthropic  # type: ignore[import-untyped]
+                self._client = anthropic.Anthropic(api_key=api_key)
+            except ImportError:
+                logger.warning("[AIProposalAgent] anthropic package not installed, using template fallback")
+
+    @property
+    def generated_by(self) -> str:
+        return "claude-haiku-4-5-20251001" if self._client else "template"
 
     def generate_proposal(
         self,
@@ -31,341 +69,318 @@ class AIProposalAgent:
         tender_text: str,
         kbli_code: str,
         kbli_description: str,
-        company_name: str = "[NAMA PERUSAHAAN]",
+        company_name: str = "PT Cliste Rekayasa Indonesia",
+        sections: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """
-        Generate proposal draft dari tender data.
-
-        Args:
-            tender_title: Judul tender
-            tender_text: Teks requirement tender (sudah ter-mask kalau perlu)
-            kbli_code: Kode KBLI yang sudah di-match
-            kbli_description: Deskripsi KBLI
-            company_name: Nama perusahaan CRI (untuk personalisasi)
-
-        Returns:
-            {
-                "proposal_text": "...",
-                "status": "success",
-                "blocks": [
-                    {"title": "Latar Belakang", "content": "..."},
-                    ...
-                ]
-            }
-        """
+        effective_sections = sections or DEFAULT_PROPOSAL_SECTIONS
         try:
-            self.logger.info(
-                f"[AIProposalAgent] Generating proposal for KBLI {kbli_code}..."
+            if self._client:
+                return self._generate_with_claude(
+                    tender_title, tender_text, kbli_code, kbli_description,
+                    company_name, effective_sections,
+                )
+            logger.warning("[AIProposalAgent] ANTHROPIC_API_KEY tidak di-set, pakai template fallback")
+            return self._generate_from_templates(
+                tender_title, tender_text, kbli_code, kbli_description,
+                company_name, effective_sections,
             )
-
-            # ── Parse tender untuk ekstrak key info ──────────────────────────
-            key_points = self._extract_key_points(tender_text)
-
-            # ── Generate proposal blocks ────────────────────────────────────
-            blocks = [
-                self._generate_latar_belakang(
-                    tender_title, kbli_description, company_name
-                ),
-                self._generate_analisis_kebutuhan(key_points, tender_text),
-                self._generate_metodologi(key_points, kbli_code),
-                self._generate_timeline(key_points),
-                self._generate_resource_plan(key_points),
-                self._generate_kesimpulan(tender_title, company_name),
-            ]
-
-            # ── Gabung semua blocks jadi satu proposal text ──────────────────
-            proposal_text = "\n\n".join(
-                [f"{'='*60}\n{b['title']}\n{'='*60}\n{b['content']}" for b in blocks]
-            )
-
-            return {
-                "status": "success",
-                "proposal_text": proposal_text,
-                "blocks": blocks,
-                "metadata": {
-                    "tender_title": tender_title,
-                    "kbli_code": kbli_code,
-                    "kbli_description": kbli_description,
-                    "company_name": company_name,
-                },
-            }
-
         except Exception as e:
-            self.logger.error(f"[AIProposalAgent] Error: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "error": str(e),
-                "proposal_text": "",
-                "blocks": [],
-            }
+            logger.error(f"[AIProposalAgent] Error: {e}", exc_info=True)
+            return {"status": "error", "error": str(e), "proposal_text": "", "blocks": []}
 
-    def _extract_key_points(self, tender_text: str) -> Dict[str, Any]:
-        """
-        Extract kata kunci penting dari tender text:
-        - Scope of work
-        - Timeline
-        - Budget indicator
-        - Location / Regional
-        - Qualification requirements
-        """
-        key_points = {
-            "scope": "",
-            "timeline": "",
-            "budget_indicator": "",
-            "location": "",
-            "qualifications": [],
+    # ------------------------------------------------------------------
+    # Claude API generation
+    # ------------------------------------------------------------------
+
+    def _generate_with_claude(
+        self,
+        tender_title: str,
+        tender_text: str,
+        kbli_code: str,
+        kbli_description: str,
+        company_name: str,
+        sections: List[str],
+    ) -> Dict[str, Any]:
+        text_snippet = tender_text[:4000] if len(tender_text) > 4000 else tender_text
+
+        # Build per-section guidelines, substituting {company_name} where needed
+        section_guidelines = []
+        for s in sections:
+            guideline_tmpl = _SECTION_GUIDELINES.get(
+                s,
+                f"Professional content for the '{s}' section, specific to this tender.",
+            )
+            section_guidelines.append(
+                f"- {s}: {guideline_tmpl.format(company_name=company_name)}"
+            )
+
+        # Schema: each block can have optional subsections (Heading 2 level)
+        blocks_schema = json.dumps([
+            {"title": s, "content": "...", "subsections": []} for s in sections
+        ])
+
+        prompt = f"""You are a professional technical consultant at {company_name} writing a formal proposal in English.
+
+Generate a technical proposal for the following tender:
+
+PROJECT TITLE: {tender_title}
+FIELD (KBLI): {kbli_code} — {kbli_description}
+COMPANY: {company_name}
+
+TENDER REQUIREMENT:
+{text_snippet}
+
+Write content for these sections. Be specific to this tender — no generic filler.
+Use formal consulting English: "CRI has developed...", "The objective of this phase is to...", "{company_name} proposes..."
+
+Return ONLY valid JSON (no explanation, no code blocks), exact format:
+{{
+  "blocks": {blocks_schema}
+}}
+
+Rules:
+- Replace every "..." in "content" with actual text (minimum 150 words per section).
+- "subsections" is a list of {{"title": "Sub-heading", "content": "..."}} for Heading-2 level sub-sections.
+  Leave "subsections" as [] for sections that don't need them (e.g. BACKGROUND, INTRODUCTION, SUMMARY).
+  Include meaningful sub-sections for DURATION & COMMERCIAL, PROPOSED SOLUTION, METHODOLOGY.
+
+Section guidelines:
+{chr(10).join(section_guidelines)}"""
+
+        message = self._client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw = message.content[0].text.strip()
+        json_match = re.search(r"\{[\s\S]+\}", raw)
+        if not json_match:
+            raise ValueError(f"Claude response is not valid JSON: {raw[:300]}")
+
+        blocks = json.loads(json_match.group())["blocks"]
+
+        proposal_text = "\n\n".join(
+            f"{'='*60}\n{b['title']}\n{'='*60}\n{b['content']}" for b in blocks
+        )
+
+        return {
+            "status": "success",
+            "proposal_text": proposal_text,
+            "blocks": blocks,
+            "metadata": {
+                "tender_title": tender_title,
+                "kbli_code": kbli_code,
+                "kbli_description": kbli_description,
+                "company_name": company_name,
+                "generated_by": "claude-haiku-4-5-20251001",
+            },
         }
 
-        text_lower = tender_text.lower()
+    # ------------------------------------------------------------------
+    # Template fallback (ANTHROPIC_API_KEY not set)
+    # ------------------------------------------------------------------
 
-        # Ekstrak scope (cari kata kunci)
-        scope_keywords = [
-            "pekerjaan",
-            "jasa",
-            "layanan",
-            "implementasi",
-            "maintenance",
-            "support",
+    def _generate_from_templates(
+        self,
+        tender_title: str,
+        tender_text: str,
+        kbli_code: str,
+        kbli_description: str,
+        company_name: str,
+        sections: List[str],
+    ) -> Dict[str, Any]:
+        key_points = self._extract_key_points(tender_text)
+
+        # Each generator returns (content, subsections_list)
+        generators = {
+            "BACKGROUND":            lambda: (self._tmpl_background(tender_title, kbli_description, company_name), []),
+            "INTRODUCTION":          lambda: (self._tmpl_introduction(tender_title, kbli_description, company_name), []),
+            "SUMMARY":               lambda: (self._tmpl_summary(key_points, kbli_code), []),
+            "DURATION & COMMERCIAL": lambda: (self._tmpl_duration_overview(key_points), self._tmpl_duration_subsections(key_points)),
+            "PROPOSED SOLUTION":     lambda: (self._tmpl_proposed_solution_overview(kbli_description, company_name), self._tmpl_proposed_solution_subsections(kbli_description)),
+            "METHODOLOGY":           lambda: (self._tmpl_methodology_overview(key_points, kbli_code), self._tmpl_methodology_subsections()),
+        }
+
+        blocks = []
+        for s in sections:
+            gen = generators.get(s)
+            if gen:
+                content, subsections = gen()
+            else:
+                content, subsections = f"[Content for {s} — please fill in manually.]", []
+            blocks.append({"title": s, "content": content, "subsections": subsections})
+
+        proposal_text = "\n\n".join(
+            f"{'='*60}\n{b['title']}\n{'='*60}\n{b['content']}" for b in blocks
+        )
+
+        return {
+            "status": "success",
+            "proposal_text": proposal_text,
+            "blocks": blocks,
+            "metadata": {
+                "tender_title": tender_title,
+                "kbli_code": kbli_code,
+                "kbli_description": kbli_description,
+                "company_name": company_name,
+                "generated_by": "template",
+            },
+        }
+
+    # ------------------------------------------------------------------
+    # Template content helpers (English, formal consulting style)
+    # ------------------------------------------------------------------
+
+    def _extract_key_points(self, text: str) -> Dict[str, Any]:
+        scope_kw = ["work", "services", "development", "implementation", "maintenance",
+                    "pekerjaan", "jasa", "layanan"]
+        scope_sents = [s.strip() for s in text.split(".") if any(k in s.lower() for k in scope_kw)][:2]
+
+        tl = re.search(r"(\d+\s+(?:days|weeks|months|years|hari|minggu|bulan|tahun))", text, re.I)
+        budget = re.search(r"(Rp\.?\s*[\d.,]+(?:\s+(?:juta|miliar))?|USD\s*[\d.,]+)", text, re.I)
+
+        return {
+            "scope":    " ".join(scope_sents) or "Professional services as per tender requirements",
+            "timeline": tl.group(1) if tl else "as per project requirements",
+            "budget":   budget.group(1) if budget else "",
+        }
+
+    def _tmpl_background(self, tender_title: str, kbli_description: str, company_name: str) -> str:
+        return (
+            f"In today's rapidly evolving industrial landscape, organizations face increasing pressure "
+            f"to optimize their operations through the strategic adoption of advanced technologies and "
+            f"professional services. The need for {kbli_description.lower()} has become paramount for "
+            f"companies seeking to maintain operational excellence and competitive advantage.\n\n"
+            f"This proposal has been prepared by {company_name} in response to the tender for "
+            f'"{tender_title}". CRI recognizes the critical importance of this initiative and presents '
+            f"a comprehensive solution tailored to meet the specific requirements outlined in the "
+            f"tender documentation."
+        )
+
+    def _tmpl_introduction(self, tender_title: str, kbli_description: str, company_name: str) -> str:
+        return (
+            f"PT Cliste Rekayasa Indonesia (CRI) is a professional consulting and engineering firm "
+            f"with extensive experience in {kbli_description.lower()} and related technical services. "
+            f"CRI has successfully delivered numerous projects of similar scope and complexity to "
+            f"leading organizations across various industries in Indonesia and the region.\n\n"
+            f'In response to the tender for "{tender_title}", CRI is pleased to present this technical '
+            f"proposal. Our team of qualified professionals is fully committed to delivering high-quality "
+            f"results that meet and exceed the client's expectations, within the agreed timeline and budget."
+        )
+
+    def _tmpl_summary(self, key_points: Dict[str, Any], kbli_code: str) -> str:
+        scope = key_points["scope"]
+        timeline = key_points["timeline"]
+        return (
+            f"This proposal covers the following key aspects:\n\n"
+            f"• Scope of Work: {scope}\n"
+            f"• Estimated Duration: {timeline}\n"
+            f"• KBLI Classification: {kbli_code}\n"
+            f"• Approach: Phased implementation with quality checkpoints at each milestone\n"
+            f"• Deliverables: Comprehensive documentation, reports, and knowledge transfer\n\n"
+            f"CRI will deploy a dedicated team of experienced professionals to ensure timely and "
+            f"high-quality delivery of all project deliverables."
+        )
+
+    def _tmpl_duration_overview(self, key_points: Dict[str, Any]) -> str:
+        tl = key_points["timeline"]
+        return (
+            f"The project duration is estimated at {tl}. The timeline will be influenced by the "
+            f"specific needs of the client and will be finalized after project kickoff. "
+            f"A detailed schedule including Gantt chart will be provided separately."
+        )
+
+    def _tmpl_duration_subsections(self, key_points: Dict[str, Any]) -> List[Dict[str, str]]:
+        tl = key_points["timeline"]
+        return [
+            {
+                "title": "Work Duration & Schedule",
+                "content": (
+                    f"Phase 1 — Kickoff & Requirements Gathering: 1–2 weeks\n"
+                    f"Phase 2 — Execution: {tl}\n"
+                    f"Phase 3 — Testing & Validation: 2 weeks\n"
+                    f"Phase 4 — Handover & Support: 1 week\n\n"
+                    f"Note: Final timeline confirmed after kickoff. "
+                    f"Detailed schedule provided upon contract award."
+                ),
+            },
+            {
+                "title": "Terms & Conditions",
+                "content": (
+                    "Additional work not previously outlined will be defined via CRI's Change Order (CO) system. "
+                    "The indicative schedule assumes all required information is made available to CRI in a timely manner. "
+                    "The price includes Withholding Tax (PPh 23) and excludes Value Added Tax (PPN 11%)."
+                ),
+            },
         ]
-        scope_sentences = [
-            s.strip()
-            for s in tender_text.split(".")
-            if any(kw in s.lower() for kw in scope_keywords)
-        ][:2]
-        if scope_sentences:
-            key_points["scope"] = " ".join(scope_sentences)
 
-        # Ekstrak timeline
-        timeline_pattern = r"(\d+\s+(?:hari|bulan|minggu|tahun))"
-        timeline_matches = re.findall(timeline_pattern, text_lower)
-        if timeline_matches:
-            key_points["timeline"] = timeline_matches[0]
+    def _tmpl_proposed_solution_overview(self, kbli_description: str, company_name: str) -> str:
+        return (
+            f"{company_name} proposes a comprehensive solution for {kbli_description.lower()} "
+            f"that addresses the client's specific operational needs. Our solution is built on "
+            f"proven frameworks and customized to meet the requirements outlined in this tender."
+        )
 
-        # Ekstrak budget indicator
-        budget_pattern = r"(Rp\.?\s*[\d.,]+(?:\s+(?:juta|miliar))?|nilai\s+[\d.,]+)"
-        budget_matches = re.findall(budget_pattern, tender_text, re.I)
-        if budget_matches:
-            key_points["budget_indicator"] = budget_matches[0]
-
-        # Ekstrak location
-        location_keywords = [
-            "jakarta",
-            "surabaya",
-            "bandung",
-            "medan",
-            "semarang",
-            "lokasi",
-            "tempat",
-            "wilayah",
-            "regional",
+    def _tmpl_proposed_solution_subsections(self, kbli_description: str) -> List[Dict[str, str]]:
+        return [
+            {
+                "title": "Solution Overview",
+                "content": (
+                    f"CRI's proposed solution for {kbli_description.lower()} encompasses a structured "
+                    f"approach combining technical expertise, industry best practices, and a proven "
+                    f"delivery methodology. The solution is designed to be scalable, maintainable, "
+                    f"and aligned with the client's long-term operational goals."
+                ),
+            },
+            {
+                "title": "Key Features & Capabilities",
+                "content": (
+                    "The solution includes the following key capabilities:\n"
+                    "• Compliance with applicable international standards and regulations\n"
+                    "• Seamless integration with the client's existing systems and workflows\n"
+                    "• Comprehensive documentation and knowledge transfer at each deliverable stage\n"
+                    "• Quality assurance checkpoints throughout the project lifecycle"
+                ),
+            },
         ]
-        location_sentences = [
-            s.strip()
-            for s in tender_text.split(".")
-            if any(kw in s.lower() for kw in location_keywords)
-        ][:1]
-        if location_sentences:
-            key_points["location"] = location_sentences[0]
 
-        # Ekstrak qualifications
-        qual_keywords = [
-            "berpengalaman",
-            "sertifikasi",
-            "lisensi",
-            "keahlian",
-            "standar",
-            "iso",
+    def _tmpl_methodology_overview(self, key_points: Dict[str, Any], kbli_code: str) -> str:
+        scope = key_points.get("scope", "project scope as specified in the tender")
+        return (
+            f"CRI's methodology for {scope} is based on international best practices and a "
+            f"structured, phase-based approach that ensures quality delivery and transparent "
+            f"communication with the client throughout the project (KBLI {kbli_code})."
+        )
+
+    def _tmpl_methodology_subsections(self) -> List[Dict[str, str]]:
+        return [
+            {
+                "title": "Phase 1 — Planning & Kickoff",
+                "content": (
+                    "Comprehensive requirements gathering, stakeholder interviews, risk identification, "
+                    "resource allocation, and project plan finalization in close collaboration with the client."
+                ),
+            },
+            {
+                "title": "Phase 2 — Execution",
+                "content": (
+                    "Systematic implementation following the agreed work plan. Regular quality control "
+                    "checks and progress reports at each milestone. Client review sessions at key stages."
+                ),
+            },
+            {
+                "title": "Phase 3 — Testing & Validation",
+                "content": (
+                    "Independent review and validation of all deliverables against specified requirements. "
+                    "User acceptance testing (UAT) incorporating client feedback at each stage."
+                ),
+            },
+            {
+                "title": "Phase 4 — Handover & Support",
+                "content": (
+                    "Complete knowledge transfer, documentation handover, and post-implementation support "
+                    "to ensure the client's team can independently operate and maintain all deliverables."
+                ),
+            },
         ]
-        qual_sentences = [
-            s.strip()
-            for s in tender_text.split(".")
-            if any(kw in s.lower() for kw in qual_keywords)
-        ][:3]
-        key_points["qualifications"] = qual_sentences
-
-        return key_points
-
-    def _generate_latar_belakang(
-        self, tender_title: str, kbli_description: str, company_name: str
-    ) -> Dict[str, str]:
-        """Generate bagian Latar Belakang proposal."""
-        content = f"""
-Dalam menanggapi pengumuman tender untuk "{tender_title}", {company_name} 
-dengan bangga menyampaikan proposal teknis ini.
-
-{company_name} adalah perusahaan yang berpengalaman di bidang {kbli_description.lower()}. 
-Kami memiliki track record yang solid dalam menyelesaikan proyek-proyek serupa 
-dengan kualitas terbaik dan tepat waktu.
-
-Komitmen kami adalah memberikan solusi terbaik yang sesuai dengan kebutuhan 
-dan ekspektasi pihak pemberi tender. Proposal ini disusun berdasarkan pemahaman 
-mendalam terhadap requirement yang telah kami pelajari dengan seksama.
-        """.strip()
-
-        return {"title": "Latar Belakang", "content": content}
-
-    def _generate_analisis_kebutuhan(
-        self, key_points: Dict[str, Any], tender_text: str
-    ) -> Dict[str, str]:
-        """Generate bagian Analisis Kebutuhan."""
-        scope_info = key_points.get("scope", "Layanan profesional sesuai requirement")
-        timeline_info = key_points.get("timeline", "Sesuai jadwal yang ditetapkan")
-        location_info = key_points.get("location", "Lokasi sesuai spesifikasi tender")
-
-        content = f"""
-Berdasarkan tender yang kami terima, kami telah mengidentifikasi kebutuhan utama:
-
-1. Ruang Lingkup Pekerjaan (Scope of Work)
-   {scope_info}
-
-2. Timeline Pelaksanaan
-   {timeline_info}
-
-3. Lokasi/Regional
-   {location_info}
-
-4. Deliverables Utama
-   - Laporan tertulis berkualitas tinggi
-   - Dokumentasi lengkap setiap tahap
-   - Review dan quality assurance
-   - Handover ke klien dengan training
-
-Kami memahami setiap detail requirement dan siap memenuhi ekspektasi tersebut 
-dengan standar internasional.
-        """.strip()
-
-        return {"title": "Analisis Kebutuhan", "content": content}
-
-    def _generate_metodologi(
-        self, key_points: Dict[str, Any], kbli_code: str
-    ) -> Dict[str, str]:
-        """Generate bagian Metodologi."""
-        content = f"""
-Metodologi yang kami terapkan didasarkan pada best practices industri dan 
-pengalaman kami dalam proyek-proyek sejenis.
-
-Fase Pelaksanaan:
-
-1. Phase 1: Planning & Kickoff
-   - Meeting dengan stakeholder
-   - Detail requirement gathering
-   - Risk assessment
-   - Resource allocation
-
-2. Phase 2: Execution
-   - Implementasi sesuai metodologi yang disepakati
-   - Quality control di setiap tahap
-   - Regular update dan komunikasi dengan klien
-
-3. Phase 3: Testing & Validation
-   - UAT (User Acceptance Testing)
-   - Performance verification
-   - Documentation review
-
-4. Phase 4: Handover & Support
-   - Knowledge transfer
-   - User training
-   - Post-implementation support
-
-Pendekatan kami mengutamakan:
-- Transparansi dan komunikasi terbuka
-- Quality assurance di setiap milestone
-- Adaptasi dengan kebutuhan klien
-- Risk management yang proaktif
-
-KBLI: {kbli_code}
-        """.strip()
-
-        return {"title": "Metodologi & Pendekatan", "content": content}
-
-    def _generate_timeline(self, key_points: Dict[str, Any]) -> Dict[str, str]:
-        """Generate bagian Timeline Pelaksanaan."""
-        timeline_info = key_points.get("timeline", "12 minggu")
-
-        content = f"""
-Rencana jadwal pelaksanaan proyek:
-
-Timeline Pelaksanaan: {timeline_info}
-
-Breakdown per Phase:
-- Phase 1 (Planning & Kickoff)     : 1 minggu
-- Phase 2 (Execution)              : {timeline_info}
-- Phase 3 (Testing & Validation)   : 2 minggu
-- Phase 4 (Handover & Support)     : 1 minggu
-
-Milestone Utama:
-• Week 1   : Project kickoff & requirement finalization
-• Week 4   : Interim review & status report
-• Week 8   : Near completion review
-• Week 12+ : Final delivery & handover
-
-Catatan: Jadwal dapat disesuaikan dengan kesepakatan bersama dan kondisi lapangan.
-        """.strip()
-
-        return {"title": "Timeline Pelaksanaan", "content": content}
-
-    def _generate_resource_plan(self, key_points: Dict[str, Any]) -> Dict[str, str]:
-        """Generate bagian Resource & Team."""
-        content = """
-Tim yang kami alokasikan untuk proyek ini terdiri dari profesional berpengalaman:
-
-Project Lead / Manager
-- Bertanggung jawab keseluruhan project
-- Point of contact utama dengan klien
-- Koordinasi tim dan resource
-
-Technical Team
-- Specialist di bidang sesuai requirement
-- Berpengalaman minimal 5+ tahun di industri
-- Bersertifikat dan qualified
-
-Quality Assurance Team
-- Memastikan quality standard terpenuhi
-- Testing dan validation di setiap tahap
-- Documentation review
-
-Support Team
-- Back-up resources untuk flexibility
-- Knowledge sharing dan documentation
-- Training delivery
-
-Resources & Tools:
-- Infrastructure dan tools sesuai kebutuhan
-- Technology stack terkini
-- Project management tools untuk transparency
-- Dokumentasi dan knowledge base
-
-Keseluruhan team kami dikomitkan untuk memberikan hasil terbaik tepat waktu.
-        """.strip()
-
-        return {"title": "Resource & Tim", "content": content}
-
-    def _generate_kesimpulan(
-        self, tender_title: str, company_name: str
-    ) -> Dict[str, str]:
-        """Generate bagian Kesimpulan & Komitmen."""
-        content = f"""
-Proposal ini merepresentasikan komitmen serius {company_name} untuk 
-memberikan solusi berkualitas tinggi dalam "{tender_title}".
-
-Keunggulan Kompetitif Kami:
-✓ Pengalaman proven di industri ini
-✓ Tim profesional bersertifikat
-✓ Metodologi yang teruji dan terstruktur
-✓ Quality assurance yang ketat
-✓ Komunikasi transparan dan responsif
-✓ Ability to meet deadline dan budget
-
-Kami siap untuk diskusi lebih lanjut dan menjawab pertanyaan apapun 
-mengenai proposal ini. Hubungi kami kapan saja untuk clarification atau 
-detail tambahan.
-
-Terima kasih atas kesempatan ini. Kami yakin bahwa kerjasama dengan {company_name} 
-akan membawa nilai tambah signifikan untuk kesuksesan proyek Anda.
-
----
-Proposal ini disusun dengan sepenuh perhatian dan profesionalisme.
-Semua informasi akurat sesuai pengetahuan kami pada saat penyusunan.
-        """.strip()
-
-        return {"title": "Kesimpulan & Komitmen", "content": content}
