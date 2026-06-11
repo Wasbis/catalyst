@@ -59,7 +59,24 @@ function TenderRow({ tender }) {
           <p className="mt-0.5 text-xs text-foreground-subtle">{formatCurrency(tender.budgetEstimated)}</p>
         )}
       </td>
-      <td className="px-4 py-3 align-top text-foreground-muted">{topKbli}</td>
+      <td className="px-4 py-3 align-top">
+        {kbliMatches.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {kbliMatches.slice(0, 2).map((k, i) => (
+              <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-surface-hover text-foreground-subtle border border-border">
+                {k.kbli_code}
+              </span>
+            ))}
+            {kbliMatches.length > 2 && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-surface-hover text-foreground-subtle border border-border">
+                +{kbliMatches.length - 2}
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-foreground-muted">—</span>
+        )}
+      </td>
       <td className="px-4 py-3 align-top">
         <ScoreBadge score={tender.matchScore} recommendation={tender.recommendation} />
       </td>

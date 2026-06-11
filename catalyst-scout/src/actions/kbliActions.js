@@ -94,3 +94,32 @@ export async function deleteKbli(id) {
     return { success: false, error: err.message };
   }
 }
+
+export async function bulkCreateKbli(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { success: false, error: "Daftar KBLI kosong." };
+  }
+
+  const cleanItems = items
+    .filter(item => item.kbliCode?.trim() && item.description?.trim())
+    .map(item => ({
+      kbliCode: item.kbliCode.trim(),
+      description: item.description.trim(),
+      category: item.category || "NIB IMPORT",
+      isActive: true,
+    }));
+
+  try {
+    const result = await prisma.masterKbli.createMany({
+      data: cleanItems,
+      skipDuplicates: true,
+    });
+
+    revalidatePath("/kbli");
+
+    return { success: true, count: result.count };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+

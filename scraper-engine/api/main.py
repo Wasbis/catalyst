@@ -162,6 +162,8 @@ class GenerateProposalFromTenderRequest(BaseModel):
     company_name: Optional[str] = "PT Cliste Rekayasa Indonesia"
     use_masking: Optional[bool] = True
     sections_to_replace: Optional[List[str]] = None  # None → default sections
+    user_requirements: Optional[str] = None
+
 
 
 class UpdateProposalBlockRequest(BaseModel):
@@ -232,16 +234,23 @@ async def _maybe_run_scheduled_scrape() -> None:
     if _scraper_status["running"]:
         return
 
-    from api.models.database import SessionLocal
+    from api.models.database import SessionLocal, ScraperSetting
 
     db = SessionLocal()
     try:
         now = datetime.now(WIB)
-        due = [
-            source
-            for source, interval in SCHEDULER_INTERVALS.items()
-            if _is_scrape_due(db, source, interval, now)
-        ]
+        due = []
+        # Get active scraper settings from DB
+        settings = db.query(ScraperSetting).filter(ScraperSetting.is_active == True).all()
+        for s in settings:
+            source_key = s.target_name.lower()
+            try:
+                hours = int(s.cron_schedule)
+                interval = timedelta(hours=hours)
+                if _is_scrape_due(db, source_key, interval, now):
+                    due.append(source_key)
+            except ValueError:
+                logger.error(f"[Scheduler] Invalid cron_schedule (must be hours int) for {s.target_name}: {s.cron_schedule}")
     finally:
         db.close()
 
@@ -783,6 +792,123 @@ def update_tender_status(
     }
 
 
+@app.post("/api/v1/tenders/{tender_id}/extract-pdf", tags=["scraper"])
+async def extract_tender_pdf_endpoint(tender_id: int, db: Session = Depends(get_db)):
+    """
+    Ekstrak data KBLI dan TKDN secara mendalam dari file PDF lampiran tender.
+    Mendownload file PDF, mengekstrak teks, mencocokkan KBLI & TKDN,
+    serta memperbarui status tender (skor & rekomendasi) di DB.
+    """
+    tender = db.query(TenderResult).filter(TenderResult.id == tender_id).first()
+    if not tender:
+        raise HTTPException(status_code=404, detail="Tender tidak ditemukan")
+
+    doc_files = json.loads(tender.doc_files_json) if tender.doc_files_json else []
+    if not doc_files:
+        raise HTTPException(status_code=400, detail="Tender tidak memiliki file lampiran PDF untuk diekstrak.")
+
+    # Ambil master KBLI codes dari DB untuk validasi regex 5-digit
+    master_kblis = [k.kbli_code for k in db.query(MasterKbli).filter(MasterKbli.is_active == True).all()]
+
+    extracted_kblis_all = []
+    tkdn_pct_max = None
+
+    import httpx
+    from api.services.civd_scraper import CIVDScraper
+    from api.services.pdf_extractor import extract_kbli_and_tkdn_from_tender_pdf
+
+    civd_scraper = CIVDScraper()
+
+    for doc in doc_files:
+        file_name = doc.get("file_name", "")
+        file_id = doc.get("file_id", "")
+        download_url = doc.get("download_url", "")
+
+        # Hanya proses file PDF
+        if not file_name.lower().endswith(".pdf") and not (download_url and ".pdf" in download_url.lower()):
+            continue
+
+        pdf_bytes = None
+        # Download file
+        try:
+            if tender.source == "civd" and file_id:
+                pdf_bytes = await civd_scraper.download_file(file_id)
+            elif download_url:
+                async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=60) as client:
+                    resp = await client.get(download_url)
+                    if resp.status_code == 200:
+                        pdf_bytes = resp.content
+        except Exception as e:
+            logger.error(f"Error downloading attachment {file_name}: {e}")
+
+        if pdf_bytes:
+            kblis, tkdn = extract_kbli_and_tkdn_from_tender_pdf(pdf_bytes, master_kblis)
+            if kblis:
+                extracted_kblis_all.extend(kblis)
+            if tkdn is not None:
+                if tkdn_pct_max is None or tkdn > tkdn_pct_max:
+                    tkdn_pct_max = tkdn
+
+    # Hilangkan duplikat KBLI
+    extracted_kblis_all = list(set(extracted_kblis_all))
+
+    # Update metadata & score jika ada data baru
+    source_metadata = json.loads(tender.source_metadata_json) if tender.source_metadata_json else {}
+    updated_something = False
+
+    if tkdn_pct_max is not None:
+        source_metadata["tkdn_percentage"] = tkdn_pct_max
+        updated_something = True
+
+    if extracted_kblis_all:
+        source_metadata["extracted_kblis"] = extracted_kblis_all
+        updated_something = True
+
+        # Tambahkan KBLI hasil ekstraksi PDF ke list kbli_matched jika belum ada
+        kbli_matched = json.loads(tender.kbli_matched_json) if tender.kbli_matched_json else []
+        kbli_matched_codes = [k.get("kbli_code") for k in kbli_matched]
+
+        for code in extracted_kblis_all:
+            if code not in kbli_matched_codes:
+                # Cari deskripsi di MasterKbli
+                master_kbli_row = db.query(MasterKbli).filter(MasterKbli.kbli_code == code).first()
+                desc = master_kbli_row.description if master_kbli_row else "KBLI hasil ekstraksi dokumen"
+                kbli_matched.append({
+                    "kbli_code": code,
+                    "description": desc,
+                    "score": 1.0  # 100% direct match
+                })
+        
+        tender.kbli_matched_json = json.dumps(kbli_matched, ensure_ascii=False)
+        
+        # Cari KBLI codes asli, gabungkan
+        kbli_codes = json.loads(tender.kbli_codes_json) if tender.kbli_codes_json else []
+        kbli_codes.extend(extracted_kblis_all)
+        tender.kbli_codes_json = json.dumps(list(set(kbli_codes)), ensure_ascii=False)
+
+        # Set match score to max or 100
+        tender.match_score = 100
+        tender.recommendation = "KEJAR"
+
+    if updated_something:
+        tender.source_metadata_json = json.dumps(source_metadata, ensure_ascii=False)
+        tender.updated_at = datetime.now(WIB)
+        db.commit()
+        db.refresh(tender)
+
+    return {
+        "status": "success",
+        "message": "Ekstraksi PDF selesai",
+        "data": {
+            "tkdn_percentage": tkdn_pct_max,
+            "extracted_kblis": extracted_kblis_all,
+            "match_score": tender.match_score,
+            "recommendation": tender.recommendation,
+            "source_metadata": source_metadata
+        }
+    }
+
+
 # ---------------------------------------------------------------------------
 # ENDPOINTS — PROPOSAL GENERATOR
 # ---------------------------------------------------------------------------
@@ -1043,6 +1169,7 @@ def create_proposal_draft(
             kbli_description=kbli_description,
             company_name=req.company_name,
             sections=sections_override,
+            user_requirements=req.user_requirements,
         )
 
         if result["status"] == "error":
@@ -1399,7 +1526,19 @@ MID_SCORE_THRESHOLD = 40
 
 
 def _recommendation_from_score(score: int) -> str:
-    if score >= HIGH_SCORE_THRESHOLD:
+    from api.models.database import SessionLocal, AppSetting
+    db = SessionLocal()
+    high_threshold = 70
+    try:
+        setting = db.query(AppSetting).filter(AppSetting.key == "MATCH_SCORE_THRESHOLD").first()
+        if setting:
+            high_threshold = int(setting.value)
+    except:
+        pass
+    finally:
+        db.close()
+
+    if score >= high_threshold:
         return "KEJAR"
     if score >= MID_SCORE_THRESHOLD:
         return "TINJAU"
@@ -1687,10 +1826,33 @@ async def _run_scraper_task(
                             item.get("tender_text")
                             or item.get("requirement_text", "")
                         )
-                        _match_score, _recommendation, _kbli_matched = (
-                            _score_tender_against_kbli(_tender_text, _kbli_dicts, _masking)
-                        )
-
+                        
+                        _bidang_usaha = item.get("source_metadata", {}).get("bidang_usaha", [])
+                        
+                        _kbli_matched_list = []
+                        _max_score = None
+                        
+                        texts_to_score = _bidang_usaha if _bidang_usaha else [_tender_text]
+                        
+                        for txt in texts_to_score:
+                            score, _, matches = _score_tender_against_kbli(txt, _kbli_dicts, _masking)
+                            if score is not None:
+                                if _max_score is None or score > _max_score:
+                                    _max_score = score
+                                _kbli_matched_list.extend(matches)
+                                
+                        # Deduplicate matched KBLI by kbli_code
+                        seen = set()
+                        unique_matches = []
+                        for m in _kbli_matched_list:
+                            if m["kbli_code"] not in seen:
+                                seen.add(m["kbli_code"])
+                                unique_matches.append(m)
+                                
+                        _recommendation = _recommendation_from_score(_max_score) if _max_score is not None else None
+                        
+                        _match_score = _max_score
+                        _kbli_matched = unique_matches
                         # Save per-item biar error 1 row gak rollback semua
                         try:
                             new_tender = TenderResult(

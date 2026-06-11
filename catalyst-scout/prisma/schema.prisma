@@ -73,6 +73,13 @@ model ScraperSetting {
   updatedAt    DateTime  @updatedAt
 }
 
+// Generic Key-Value Settings for Application Configuration
+model AppSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
 // Log tiap kali scraper jalan (RF-T-012, RF-T-013) — dikelola scraper-engine (SQLAlchemy)
 model ScrapingJob {
   id                  Int       @id @default(autoincrement())

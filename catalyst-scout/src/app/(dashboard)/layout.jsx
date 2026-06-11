@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import Sidebar from "@/components/layout/Sidebar";
+import ShellWrapper from "@/components/layout/ShellWrapper";
 import Topbar from "@/components/layout/Topbar";
 
 export default async function DashboardLayout({ children }) {
@@ -8,12 +8,11 @@ export default async function DashboardLayout({ children }) {
   if (!user) redirect("/login");
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <div className="flex flex-1 flex-col">
+    <ShellWrapper>
+      <div className="main-area">
         <Topbar user={user} />
-        <main className="flex-1 overflow-y-auto bg-background p-6">{children}</main>
+        <main className="page-content">{children}</main>
       </div>
-    </div>
+    </ShellWrapper>
   );
 }

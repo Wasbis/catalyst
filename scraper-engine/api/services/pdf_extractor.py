@@ -147,3 +147,51 @@ def dump_extraction_to_json(pdf_path: str, output_path: str) -> str:
         )
 
     return output_path
+
+
+def extract_kbli_and_tkdn_from_tender_pdf(pdf_bytes: bytes, master_kblis: list[str]) -> tuple[list[str], float | None]:
+    """
+    Ekstrak kode KBLI 5-digit dan persentase TKDN dari file PDF lampiran tender.
+    master_kblis digunakan untuk memfilter agar kode 5-digit yang ditemukan benar-benar KBLI valid.
+    """
+    text = ""
+    try:
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+    except Exception as e:
+        logger.error(f"Gagal membaca PDF tender: {e}")
+        return [], None
+
+    # 1. Ekstrak KBLI
+    all_5_digits = re.findall(r"\b\d{5}\b", text)
+    extracted_kblis = sorted(list(set(code for code in all_5_digits if code in master_kblis)))
+
+    # 2. Ekstrak TKDN
+    tkdn_pct = None
+    matches = []
+    
+    # Pola 1: Mencari kata kunci, lalu persentase dalam 100 karakter setelahnya
+    for m in re.finditer(r"(?:TKDN|Tingkat\s+Komponen\s+Dalam\s+Negeri)[^\n]{0,100}?(\d+(?:[\.,]\d+)?)\s*%", text, re.IGNORECASE):
+        try:
+            val_str = m.group(1).replace(",", ".")
+            matches.append(float(val_str))
+        except ValueError:
+            pass
+
+    # Pola 2: Pola yang lebih spesifik "TKDN minimal/minimum/sebesar X%"
+    for m in re.finditer(r"(?:TKDN|Tingkat\s+Komponen\s+Dalam\s+Negeri)\s*(?:minimal|minimum|sebesar|sebesar\s+minimal)?\s*(?::|sebesar)?\s*(\d+(?:[\.,]\d+)?)\s*%", text, re.IGNORECASE):
+        try:
+            val_str = m.group(1).replace(",", ".")
+            matches.append(float(val_str))
+        except ValueError:
+            pass
+
+    if matches:
+        tkdn_pct = max(matches)
+
+    logger.info(f"PDF extraction complete. Extracted KBLIs: {extracted_kblis}, TKDN: {tkdn_pct}%")
+    return extracted_kblis, tkdn_pct
+

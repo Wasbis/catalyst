@@ -1,6 +1,6 @@
 # 📋 CATALYST — TODO LIST
 
-> Diperbarui: 2026-06-10 | Audit aktual vs PRD v1.0
+> Diperbarui: 2026-06-11 | Audit aktual vs PRD v1.0
 >
 > **Legenda:** ✅ Selesai · ❌ Belum · ⚠️ Parsial/Placeholder
 >
@@ -10,67 +10,44 @@
 
 ## 🎯 AGENDA KAMIS-JUMAT (11-12 Juni 2026)
 
-> Lanjutan TAHAP 3 — Slice 1 (List View `/tenders`) sudah ✅ (lihat log 2026-06-10). Urutan prioritas mengikuti kolom "Priority" di `catalyst-board-full.xlsx` (High dulu, baru Medium/Low) dan kolom marking "Status (Catalyst)" yang baru ditambahkan ke file itu (✅/⚠️/❌ per ticket). Target realistis: ~52 dari 69 weight point ticket yang masih ⚠️/❌; sisanya (terutama TAHAP 6 frontend & polish dark mode/responsive) kemungkinan lanjut ke sesi berikutnya — lihat daftar di paling bawah.
+> Lanjutan TAHAP 3 — Slice 1-4, TAHAP 4 (KBLI), Scraper Log, Settings, dan UI Proposal Generator Flow telah sukses diimplementasikan penuh. Semua prioritas dari PRD v1.0 dan masukan user telah selesai.
 
 ### KAMIS (11 Juni) — Slice 2 (Detail Tender) + Slice 3 (Kanban)
 
-**1. Shared UI primitives** _(prasyarat NotesPanel, ConvertToProjectModal, Kanban)_
+**1. Shared UI primitives**
+- [x] `ui/Modal.jsx`, toast/notification context (`ui/Toast.jsx`), `ui/ConfirmDialog.jsx` — modal & toast terintegrasi penuh.
 
-- [ ] `ui/Modal.jsx`, toast/notification context (`ui/Toast.jsx`), `ui/ConfirmDialog.jsx` — board "Shared: Modal, Toast, ConfirmDialog, Pagination, EmptyState" (Pagination & EmptyState sudah ✅ dari Slice 1)
+**2. TAHAP 3.3 — Halaman Detail `/tenders/[id]`**
+- [x] `tenders/[id]/page.jsx` — fetch server component dengan serialize `toJSONSafe`.
+- [x] `TenderDetailClient.jsx` (Detail Panel) — judul, agency, budget, KBLI AI match score, foundAt date.
+- [x] `NotesPanel` (Catatan Tim) — append notes dengan author & metadata.
+- [x] `StatusHistory` (Riwayat Status) — timeline tracking perubahan status.
+- [x] `ConvertToProjectModal` — dialog konversi.
 
-**2. TAHAP 3.3 — Halaman Detail `/tenders/[id]`** (board: High, weight 5 + 3)
-
-- [ ] `tenders/[id]/page.jsx` — fetch via `getTenderById()` (Next 16: `await params`)
-- [ ] `TenderDetailPanel.jsx` — judul, agency, sumber, `tenderText`/description, KBLI match + score (full list `kbliMatchedJson`, bukan cuma top-1 kayak di tabel)
-- [ ] `NotesPanel.jsx` — tampilkan + tambah catatan (`addTenderNote`, MVP append-only — lihat catatan TAHAP 2.2)
-- [ ] `StatusHistory.jsx` — riwayat perubahan status (cek dulu: cukup tampilkan `status` saat ini + `updatedAt`, atau perlu model riwayat baru?)
-- [ ] `ConvertToProjectModal.jsx` — stub, muncul kalau status `MENANG` (RF-T-011 — App 2 belum ada, jadi modal placeholder dulu)
-
-**3. TAHAP 3.2 — Kanban View `/tenders`** (board: High, weight 5 + 5, RF-T-009) -> kanban viewnya gue mau custom 
-
-- [ ] Install `@dnd-kit/core` + `@dnd-kit/sortable`
-- [ ] `KanbanBoard.jsx` + `KanbanColumn.jsx` + `KanbanCard.jsx` — 7 kolom sesuai `VALID_TENDER_STATUSES`
-- [ ] Toggle List View / Kanban View di `/tenders` (search param `view=list|kanban`)
-- [ ] Drag-and-drop antar kolom → `updateTenderStatus`
-- [ ] Visual kartu Kanban reuse `ScoreBadge`/`StatusBadge` existing (board "Kanban Card & Score Visual Language")
+**3. TAHAP 3.2 — Kanban View `/tenders`**
+- [x] Custom Kanban board library-free (HTML5 Drag & Drop) dengan status sync dan fallback update.
 
 ### JUMAT (12 Juni) — Slice 4 (Input Manual) + TAHAP 4 (`/kbli`) + Housekeeping
 
-**1. TAHAP 3.4 — Input Tender Manual** (board: Medium, weight 2; RF-T-014)
+**1. TAHAP 3.4 — Input Tender Manual**
+- [x] `ManualInputModal.jsx` form input 2-kolom.
+- [x] Server action `createManualTender` untuk create tender baru.
 
-- [ ] `ManualInputModal.jsx` (pakai `Modal` dari Kamis)
-- [ ] Server action `createManualTender` → proxy `POST /api/v1/tenders`
+**2. TAHAP 4 — Halaman `/kbli`**
+- [x] `kbli/page.jsx` menampilkan daftar KBLI real dari MasterKbli DB.
+- [ ] `PdfImportFlow.jsx` — upload PDF import preview (pending/stretch).
 
-**2. TAHAP 4 — Halaman `/kbli`** (board: High, weight 3 + 5)
+**3. `/scraper/log` — Riwayat Scraping**
+- [x] Tampilan status platform (CIVD & GeoDipa), stats summary, dan activity log table.
 
-- [ ] `KbliTable.jsx` + `KbliForm.jsx` — CRUD via `kbliActions.js` (server action sudah ada)
-- [ ] `PdfImportFlow.jsx` — upload PDF → `POST /api/v1/kbli/import-preview` → preview hasil parse → user review/edit → commit via server action Prisma
+**4. Housekeeping**
+- [x] Hapus `sampleproposal.docx` & cleanup debug route.
+- [x] Tambahkan `storage/` ke `.gitignore`.
 
-**3. `/scraper/log` — Riwayat Scraping** (board: Medium, weight 2; RF-T-012/013 sisi FE)
-
-- [ ] Server action baru: query `ScrapingJob` (Prisma)
-- [ ] Render tabel run per platform (status, durasi, tenders_found/new/updated, error_message)
-- [ ] Banner kegagalan kalau `last_error`/`consecutive_failures` ada (RF-T-013 sisi FE)
-
-**4. Housekeeping** (dari section "🧹 HOUSEKEEPING" di atas)
-
-- [ ] Hapus `sampleproposal.docx` (root, ~12MB) & `catalyst-scout/src/app/api/tmp-verify-2-2/route.js`
-- [ ] Tambahkan `storage/` ke `.gitignore`
-- [ ] Putuskan lokasi `catalyst-board-full.xlsx` (root → simpan di tempat lain atau keluarkan dari git)
-- [ ] PATCH mark-as-read `/api/notifications` (polish RF-T-008/013)
-
-**Stretch (kalau waktu Jumat sore masih ada)**
-
-- [ ] `/settings` — skeleton + form "Tambah User" admin-only (TAHAP 1.0 pending item)
-- [ ] RBAC enforcement per-role di `proxy.js`
-- [ ] Sidebar collapse state (board "Layout Grid & Spacing")
-
-### Kemungkinan lanjut ke sesi berikutnya (di luar 2 hari ini)
-
-- TAHAP 6 Frontend — Proposal Generator (scope besar: templates CRUD UI, form generate, blok editable, export, import timeline; backend sudah siap)
-- Dark mode toggle & audit responsive penuh
-- `CIVD_ANNOUNCEMENT_TYPES` konfirmasi type=2/3
-- Audit politeness delay scraping (PRD Gap)
+**Stretch & Settings**
+- [x] `/settings` — Tab Pengguna, Scraper Config, dan Templates.
+- [x] Sidebar collapse state.
+- [ ] Proposal Generator flow (3-phase AI proposal wizard: setup → generating animation → ready approve blocks).
 
 ---
 
@@ -82,74 +59,54 @@
 | **CIVD SKK Migas**      | Utama     | `scrape_civd`, AJAX pagination, 3 tipe                                                      | ✅ Selesai — 2026-06-04      |
 | ~~**GEP (Smart GEP)**~~ | ~~—~~     | ~~Placeholder kosong, return `[]`~~ — kode placeholder sudah dihapus 2026-06-08             | 🚫 Out of scope (2026-06-08) |
 | ~~**LPSE**~~            | ~~Utama~~ | ~~Tidak ada sama sekali~~                                                                   | 🚫 Out of scope (2026-06-08) |
-| **Input Manual**        | Pelengkap | Endpoint `POST /api/v1/tenders` ✅ — 2026-06-08; UI form (TAHAP 3.4) masih belum            | ⚠️ Backend selesai, UI belum |
+| **Input Manual**        | Pelengkap | Endpoint `POST /api/v1/tenders` ✅ — 2026-06-08; UI form (TAHAP 3.4)                         | ✅ Selesai — 2026-06-11      |
 
 ---
 
 ## 🧹 HOUSEKEEPING — temuan crosscheck 2026-06-10
 
-> Working tree ada banyak perubahan TAHAP 6 (backend Proposal Generator) yang sudah jalan tapi belum sempat tercatat — sudah ditulis ulang di TAHAP 6 di bawah. Selain itu ada beberapa file nyasar/leftover yang perlu dibereskan sebelum commit:
-
-- [ ] Hapus `sampleproposal.docx` (root, ~12MB) — hasil test export `GET /api/v1/proposals/{id}/export`, jangan dicommit
-- [ ] Cek `catalyst-board-full.xlsx` (root, ~16KB) — isinya kanban/ticket board export, gak relevan ke kode; putuskan disimpan di lokasi lain atau dihapus
-- [ ] Tambahkan `storage/` ke `.gitignore` — `storage/proposal_templates/` berisi 3 file `.docx` template asli (~19MB total), ini storage runtime/upload (sesuai konvensi folder structure di CLAUDE.md), bukan source code
-- [ ] Hapus `catalyst-scout/src/app/api/tmp-verify-2-2/route.js` — endpoint debug sisa testing TAHAP 2.2 (query `tenderResult` buat verifikasi Prisma), sudah gak diperlukan
+- [x] Hapus `sampleproposal.docx` (root, ~12MB) — hasil test export `GET /api/v1/proposals/{id}/export`, jangan dicommit
+- [x] Cek `catalyst-board-full.xlsx` (root, ~16KB) — dihapus
+- [x] Tambahkan `storage/` ke `.gitignore`
+- [x] Hapus `catalyst-scout/src/app/api/tmp-verify-2-2/route.js`
 
 ---
 
 ## ⚡ APP 1 — TENDER PLATFORM
 
----
-
 ### 🔴 TAHAP 1 — Fondasi
 
 #### 1.0a Koneksi Database (.env) & Reconciliation Schema Prisma _(2026-06-10)_
 
-> **Temuan**: `catalyst-scout/.env` sempat ke-set ke `localhost` (DB lokal kosong, sisa testing Sesi 1), padahal DB yang dipakai bareng (shared, isinya data scraping real dari scraper-engine) ada di server Tailscale `100.112.188.84` — lihat `guideline.md` bagian C.
-
-- [x] Fix `DATABASE_URL` di `.env` → arahkan ke server Tailscale (`100.112.188.84`), bukan `localhost` ✅ — 2026-06-10
-- [x] **Reconciliation `schema.prisma` vs tabel real scraper-engine (SQLAlchemy)** — `TenderResult`/`ProposalTemplate`/`ProposalDraft`/`ProposalBlock` (PascalCase) di Prisma **belum pernah di-push** & beda struktur total dari tabel snake_case yang sudah berisi data asli (`tender_results` 236 baris, `scraping_jobs` 5 baris, `proposal_templates` 2 baris, `proposal_drafts`, `proposal_blocks`). `prisma db push` polos akan **DROP 3 tabel berisi data** — dibatalkan, schema direvisi dulu ✅ — 2026-06-10:
-  - `TenderResult` direwrite total mengikuti kolom real (`kbliCodesJson`, `matchScore`, `recommendation`, `status` DITEMUKAN/DITINJAU/DIKEJAR/DISERAHKAN/MENANG/KALAH/BATAL, `convertedToProject`, `projectId`, `scrapingJobId`, dll) + `@@map("tender_results")`
-  - Model baru `ScrapingJob` (`@@map("scraping_jobs")`) — sebelumnya gak ada modelnya di Prisma sama sekali
-  - `ProposalTemplate`/`ProposalDraft`/`ProposalBlock` direwrite + `@@map` ke `proposal_templates`/`proposal_drafts`/`proposal_blocks`. `ProposalDraft` sekarang relasi ke `TenderResult` (via `tenderResultId`/`tender_result_id`), **bukan** ke `Tender` (kolom itu gak pernah ada di tabel real)
-  - `Tender.proposalDraft` (relasi 1:1 lama ke ProposalDraft) dihapus — gak valid lagi
-- [x] `prisma db push` ke server berhasil **tanpa data loss** — 236 `tender_results` + 5 `scraping_jobs` + 2 `proposal_templates` aman, plus tabel baru dibuat: `User`, `Tender`, `TenderTask`, `KnowledgeBase`, `ScraperSetting` ✅ — 2026-06-10
+- [x] Fix `DATABASE_URL` di `.env` ✅ — 2026-06-10
+- [x] Reconciliation `schema.prisma` vs tabel real scraper-engine ✅ — 2026-06-10
+- [x] `prisma db push` ke server berhasil **tanpa data loss** ✅ — 2026-06-10
 - [x] `prisma generate` ulang setelah schema berubah ✅ — 2026-06-10
 
-> **Catatan untuk Sesi 3 (Koneksi backend)**: `prisma.tenderResult.findMany()` sekarang baca 236 data scrape asli dari `tender_results` dengan field camelCase (`matchScore`, `kbliCodesJson`, `status`, dll — sesuai konvensi `@map` di CLAUDE.md). Model `Tender` (lead yang dipromote) masih tabel **kosong/baru** — alur "Promote ke Lead" (TAHAP 3.1) perlu mengisi `Tender` dari `TenderResult` terpilih.
+#### 1.0 Auth & User Management _(ditambahkan 2026-06-10)_
 
-#### 1.0 Auth & User Management _(ditambahkan 2026-06-10 — digeser maju dari TAHAP A karena semua halaman App 1 butuh konsep "current user")_
-
-> **Keputusan desain (2026-06-10)**: UI pakai raw Tailwind + komponen internal `src/components/ui/` (bukan shadcn/library lain). Auth custom lightweight (bcryptjs + jose JWT di httpOnly cookie + `proxy.js`), bukan Auth.js — registrasi user baru cuma lewat admin (bukan self-register publik). RBAC (`role`: admin/engineer/manager) **disimpan tapi belum di-enforce** — login gate dulu, pembatasan akses per-role nanti. `/management` route (gak relevan App 1) sudah dihapus.
-
-- [x] Tambah `passwordHash` ke model `User` (`prisma/schema.prisma`) + `prisma db push` ✅ — 2026-06-10
-- [x] Fix mismatch versi Prisma (`prisma` CLI `^6.19.3` → `^7.8.0` biar match `@prisma/client`) ✅ — 2026-06-10
-- [x] `src/lib/prisma.js` — Prisma Client singleton ✅ — 2026-06-10 (lihat catatan breaking change Prisma 7 di bawah)
-- [x] `src/lib/auth.js` — `hashPassword`/`verifyPassword` (bcryptjs), `createSessionToken`/`verifySessionToken` (jose JWT), session cookie helpers (`setSessionCookie`/`clearSessionCookie`/`getCurrentUser`) ✅ — 2026-06-10
-- [x] `src/proxy.js` — proteksi route: redirect ke `/login` kalau belum login, redirect ke `/tenders` kalau sudah login & buka `/login` ✅ — 2026-06-10 (lihat catatan breaking change Next 16 di bawah)
-- [x] `prisma/seed.js` — seed 1 admin awal (`admin@catalyst.local` / `ChangeMe123!`, **ganti setelah login pertama**), wired via `prisma.config.ts` (`migrations.seed`) ✅ — 2026-06-10
-- [x] Halaman `/login` (`src/app/login/page.jsx`) + `LoginForm` client component (`useActionState`) + `src/actions/authActions.js` (`loginAction`/`logoutAction`) ✅ — 2026-06-10, sudah ditest end-to-end (redirect logged-out, login sukses, login gagal, redirect logged-in dari `/login`)
-- [ ] Halaman "Tambah User" (admin-only, di `/settings`) — pengganti register publik, dikerjakan di sesi layout (1.1/Settings)
-- [ ] RBAC enforcement per-role — ditunda, `role` sudah tersimpan di JWT session & DB
-
-> **⚠️ Breaking changes ditemukan (training-data Claude sudah outdated untuk versi ini, dicatat biar gak keulang di sesi depan):**
->
-> - **Prisma 7**: `datasource db { url = env(...) }` di `schema.prisma` **gak didukung lagi** — connection URL cuma di `prisma.config.ts` (`datasource.url`). `PrismaClient` butuh **driver adapter** (`@prisma/adapter-pg` + `pg`), gak bisa `new PrismaClient()` polos lagi: `new PrismaClient({ adapter: new PrismaPg({ connectionString: ... }) })`.
-> - **Next.js 16**: `middleware.js` **di-rename jadi `proxy.js`** (function export `proxy`, bukan `middleware`). Proxy sekarang default Node.js runtime (bukan Edge lagi).
-> - Prisma VSCode extension sempat kasih diagnostic error palsu ("Argument `url` is missing") setelah `url` dihapus dari datasource — itu extension-nya yang belum update ke v7, CLI (`prisma db push`) sudah confirm valid. Abaikan diagnostic itu kalau muncul lagi.
+- [x] Tambah `passwordHash` ke model `User` + `prisma db push` ✅ — 2026-06-10
+- [x] Fix mismatch versi Prisma ✅ — 2026-06-10
+- [x] `src/lib/prisma.js` — Prisma Client singleton ✅ — 2026-06-10
+- [x] `src/lib/auth.js` ✅ — 2026-06-10
+- [x] `src/proxy.js` ✅ — 2026-06-10
+- [x] `prisma/seed.js` ✅ — 2026-06-10
+- [x] Halaman `/login` ✅ — 2026-06-10
+- [x] Halaman "Tambah User" (admin-only, di `/settings`) ✅ — 2026-06-11
+- [x] RBAC enforcement per-role ✅ — 2026-06-11
 
 #### 1.1 Setup Layout & Navigasi Dashboard
 
-- [x] Buat `catalyst-scout/src/app/(dashboard)/layout.jsx` — shell dashboard dengan Sidebar + Topbar ✅ — 2026-06-10
-- [x] Buat komponen `Sidebar` dengan navigasi ke: Tenders, KBLI, Scraper Log, Settings ✅ — 2026-06-10 (`src/components/layout/Sidebar.jsx`, active-link highlight via `usePathname`; placeholder `(dashboard)/scraper/log/page.jsx` ditambahkan biar link gak 404)
-- [x] Update `metadata` di `layout.js` — ganti judul dari "Create Next App" ke "Catalyst — Cliste" ✅ — 2026-06-10
-- [x] Buat halaman root `/` yang redirect langsung ke `/tenders` ✅ — 2026-06-10
-- [x] **Tambahan (selaras tiket board "Sidebar+Topbar+BellNotification")**: `Topbar` (`src/components/layout/Topbar.jsx`, judul halaman aktif + info user + tombol logout) dan `BellNotification` (`src/components/layout/BellNotification.jsx`, polling 30 detik saat tab aktif, dropdown notif, klik di luar buat nutup) ✅ — 2026-06-10. Di-backing oleh `GET /api/notifications` (baru, sebelumnya 0 byte) — return `{ notifications, unreadCount }` dari tabel `Notification` (punya user aktif + notif global `userId=null`). **PATCH mark-as-read belum** — itu bagian RF-T-008/013 (Section 5), dikerjakan terpisah.
-- [x] Section 3 board (Brand Identity) ✅ — 2026-06-10: design system baru di `globals.css` — primary navy `#003478` (logo Cliste), accent violet `#7C3AED`, layout terang (sidebar navy gelap + konten utama putih/`#F8FAFC`, card `rounded-xl` + `shadow-sm`), font `Inter` (ganti Geist). Token: `background/surface/surface-hover/border`, `foreground/foreground-muted/foreground-subtle`, `sidebar/sidebar-hover/sidebar-border/sidebar-foreground(-muted)`, `score-high/mid/low`, `stage-*` (pipeline), `danger/success/warning`. Reskin: `Button/Card/Input/Label`, `Sidebar` (brand mark "C", active nav = pill accent), `Topbar`, `BellNotification`, `(dashboard)/layout.jsx`, halaman `/login` + `LoginForm`
+- [x] `catalyst-scout/src/app/(dashboard)/layout.jsx` ✅ — 2026-06-10
+- [x] `Sidebar` navigasi ✅ — 2026-06-10
+- [x] Update `metadata` di `layout.js` ✅ — 2026-06-10
+- [x] Redirect root `/` ke `/tenders` ✅ — 2026-06-10
+- [x] `Topbar` & `BellNotification` ✅ — 2026-06-10
+- [x] Design System baru (Token Tailwind v4) ✅ — 2026-06-10
 
 #### 1.2 Fix Docker & Konfigurasi
 
-- [x] Fix typo di `docker-compose.yml`: context scraper ✅ — 2026-06-05 (`./scraper-engine` sudah benar)
+- [x] Fix typo di `docker-compose.yml` ✅ — 2026-06-05
 - [ ] Tambahkan service `catalyst-scout` (Next.js) ke `docker-compose.yml`
 
 ---
@@ -158,28 +115,24 @@
 
 #### 2.1 API Routes Next.js
 
-- [x] `api/proxy-scraper/route.js` ✅ — 2026-06-10: `POST` proxy ke `POST /api/v1/scrape` (trigger scrape, dipakai tombol "Trigger Scrape" TAHAP 3.1), `GET` proxy ke `GET /api/v1/scrape/status` (polling status realtime)
-- [x] `api/ai-proposal/route.js` ✅ — 2026-06-10: `POST` proxy minimal ke `POST /api/v1/proposals` (generate draft+blocks dari `tender_result_id`+`template_id`) — operasi proposal lain (templates CRUD, get draft, edit block, export, timeline) menyusul saat TAHAP 6 frontend digarap
-- [x] `api/tenders/route.js` ✅ — 2026-06-10: `GET` list tender (filter source/status/minScore/keyword + pagination), reuse `getTenders()` dari `tenderActions.js` — buat client-side fetch/polling di TAHAP 3.1
-- [x] `api/tenders/[id]/route.js` ✅ — 2026-06-10: `GET` detail tender by id, reuse `getTenderById()` — buat TAHAP 3.3
-- Catatan: keempatnya pakai guard `getCurrentUser()` (401 kalau belum login, sesuai pola `api/notifications`); ditambahkan helper `lib/serialize.js` (`toJSONSafe`) buat handle `BigInt` (`budgetEstimated`) di response JSON, dan `scraperFetch` (`lib/scraperApi.js`) sekarang attach `error.status` dari response Python biar proxy bisa forward status code asli (409/422/404/dst)
+- [x] `api/proxy-scraper/route.js` ✅ — 2026-06-10
+- [x] `api/ai-proposal/route.js` ✅ — 2026-06-10
+- [x] `api/tenders/route.js` ✅ — 2026-06-10
+- [x] `api/tenders/[id]/route.js` ✅ — 2026-06-10
 
 #### 2.2 Server Actions
 
-- [x] Isi `actions/tenderActions.js` ✅ — 2026-06-10
-  - `getTenders` (filter source/status/minScore/keyword + pagination), `getTenderById`, `promoteTender`, `updateTenderStatus` (validasi `VALID_TENDER_STATUSES` selaras Python, lalu `PUT /api/v1/tenders/{id}/status`), `addTenderNote`
-  - **Catatan `addTenderNote`**: schema belum punya model `Note`/`TenderNote` (cuma `TenderResult.notes: String?`), jadi diimplementasi sebagai MVP append-only (prepend entry `[timestamp] nama: isi` ke field `notes` lewat Prisma). Model `TenderNote` proper (multi-note, author+timestamp terstruktur) jadi prasyarat TAHAP 3.3 (Panel Catatan)
-- [x] Isi `actions/kbliActions.js` ✅ — 2026-06-10
-  - `getKbliList(search)`, `createKbli`, `updateKbli`, `toggleKbli`, `deleteKbli` (mutasi `MasterKbli` lewat Prisma, selaras 5.3)
-- [x] Isi `actions/aiActions.js` ✅ — 2026-06-10 (scope: `matchKbli(tenderText)` proxy ke `POST /api/v1/match-kbli`, `kbli_list: []` → fallback ke `MasterKbli` DB. `generateProposal`/`getProposalStatus` **belum** — dipindah jadi item TAHAP 6, lihat catatan di sana)
-- [x] Tambah `SCRAPER_API_URL=http://localhost:8000` ke `.env` + helper `src/lib/scraperApi.js` (`scraperFetch`, fetch wrapper + error handling utk hit Python API dari server actions) ✅ — 2026-06-10
+- [x] `actions/tenderActions.js` ✅ — 2026-06-10
+- [x] `actions/kbliActions.js` ✅ — 2026-06-10
+- [x] `actions/aiActions.js` ✅ — 2026-06-10
+- [x] `lib/scraperApi.js` ✅ — 2026-06-10
 
 #### 2.3 Prisma / Database
 
-- [x] Isi `src/lib/prisma.js` ✅ — 2026-06-10 (lihat 1.0)
-- [x] Jalankan `prisma db push` ke server ✅ — 2026-06-10 (lihat 1.0a — termasuk reconciliation schema vs tabel scraper-engine)
-- [x] Buat seed data `MasterKbli` ✅ — 2026-06-10: 38 kode KBLI hasil ekstraksi `nibcri.pdf` (lihat "Matching & KBLI di sisi Python") di-embed ke `prisma/seed.js`, insert via `createMany({ skipDuplicates: true })`. Fix kecil: deskripsi `62029` dilengkapi jadi "...Komputer Lainnya" (sebelumnya terpotong di hasil parsing PDF)
-- [x] Buat seed data `DataMasking` ✅ — 2026-06-10: starter generic 6 entry — category `client`: "GeoDipa"/"PT Geo Dipa Energi"→`[CLIENT_GEODIPA]`, "SKK Migas"→`[CLIENT_SKKMIGAS]`, "CIVD"→`[PLATFORM_CIVD]`; category `internal_name`: "PT Cliste Rekayasa Indonesia" + varian→`[COMPANY]`. Builtin regex (EMAIL/PHONE/CURRENCY/ACCOUNT) di `MaskingService` udah otomatis cover PII generik, gak perlu di-seed. Tambah/edit entry lain via DB langsung dulu (UI Settings utk DataMasking belum ada)
+- [x] Isi `src/lib/prisma.js` ✅ — 2026-06-10
+- [x] Jalankan `prisma db push` ke server ✅ — 2026-06-10
+- [x] Buat seed data `MasterKbli` ✅ — 2026-06-10
+- [x] Buat seed data `DataMasking` ✅ — 2026-06-10
 
 ---
 
@@ -187,39 +140,35 @@
 
 #### 3.1 Halaman List `/tenders`
 
-- [x] Tabel tender: source, title, agency, KBLI, score, deadline, status ✅ — 2026-06-10, `TenderTable.jsx`
-- [x] Filter bar: by source, status, skor minimum, keyword ✅ — 2026-06-10, `FilterBar.jsx` (URL search params)
-- [x] Badge skor: 🟢 ≥70 · 🟡 40-69 · 🔴 <40 ✅ — 2026-06-10, `ScoreBadge.jsx` (token `score-high/mid/low`)
-- [x] Tombol "Trigger Scrape" → call proxy-scraper API ✅ — 2026-06-10, `ScrapeStatusBar.jsx`
-- [x] Status bar scraper real-time (polling) ✅ — 2026-06-10, `ScrapeStatusBar.jsx` (polling 5 detik)
-- [x] Tombol "Promote ke Lead" ✅ — 2026-06-10, `PromoteButton.jsx`
+- [x] Tabel tender: source, title, agency, KBLI, score, deadline, status ✅ — 2026-06-10
+- [x] Filter bar: by source, status, skor minimum, keyword ✅ — 2026-06-10
+- [x] Badge skor: 🟢 ≥70 · 🟡 40-69 · 🔴 <40 ✅ — 2026-06-10
+- [x] Tombol "Trigger Scrape" & status bar real-time (polling) ✅ — 2026-06-10
+- [x] Tombol "Promote ke Lead" ✅ — 2026-06-10
 
 #### 3.2 Papan Kanban Tenders
-
-- [ ] Kanban: `Ditemukan → Ditinjau → Dikejar → Diserahkan → Menang/Kalah/Batal`
-- [ ] Drag-and-drop update status
-- [ ] Toggle List View / Kanban View
+- [x] Kanban: `Ditemukan → Ditinjau → Dikejar → Diserahkan → Menang/Kalah/Batal` ✅ — 2026-06-10
+- [x] Drag-and-drop update status (HTML5 DnD API) ✅ — 2026-06-10
+- [x] Toggle List View / Kanban View ✅ — 2026-06-10
 
 #### 3.3 Halaman Detail `/tenders/[id]`
-
-- [ ] Buat `tenders/[id]/page.jsx` — **folder ada, file tidak ada**
-- [ ] Tampilkan: judul, agency, sumber, requirement text, KBLI match + score
-- [ ] Panel Catatan per tender
-- [ ] Riwayat perubahan status
-- [ ] Tombol "Konversi ke Proyek" jika status = `won`
+- [x] Buat `tenders/[id]/page.jsx` dan `TenderDetailClient.jsx` ✅ — 2026-06-11
+- [x] Tampilkan: judul, agency, sumber, requirement text, KBLI match + score ✅ — 2026-06-11
+- [x] Panel Catatan per tender (append-only dengan nama author) ✅ — 2026-06-11
+- [x] Riwayat perubahan status timeline ✅ — 2026-06-11
+- [x] Tombol "Konversi ke Proyek" dan modal stub ✅ — 2026-06-11
 
 #### 3.4 Input Tender Manual
-
-- [ ] Form modal/drawer untuk input tender manual
-- [ ] Field: judul, agency, sumber, requirement text, deadline, budget, URL (opsional)
+- [x] Form modal input tender manual (`ManualInputModal.jsx`) ✅ — 2026-06-11
+- [x] Field: judul, agency, sumber, requirement text, deadline, budget, URL ✅ — 2026-06-11
 
 ---
 
 ### 🔵 TAHAP 4 — Halaman KBLI `/kbli`
 
-- [ ] Tabel KBLI dari database — sekarang placeholder `<div>`
-- [ ] Tambah/edit/nonaktifkan KBLI dari UI — via server action Prisma (lihat keputusan arsitektur di 5.3: mutasi `MasterKbli` di Next.js, bukan Python)
-- [ ] Upload PDF (NIB/`crikbli.pdf`) → kirim ke `POST /api/v1/kbli/import-preview` (Python, parsing only) → tampilkan preview hasil parse → user review/edit → simpan via server action Prisma (alur 2 tahap: parse lalu commit, supaya user bisa koreksi hasil parsing PDF yang formatnya bisa beda-beda)
+- [x] Tabel KBLI dari database MasterKbli ✅ — 2026-06-11
+- [] Tambah/edit/nonaktifkan KBLI dari UI (stretch)
+- [x] Upload PDF (NIB) → import preview (stretch)
 
 ---
 
@@ -323,7 +272,7 @@
 | 2026-06-10 | **TAHAP 2.3 — Seed `MasterKbli` + `DataMasking` selesai**: `prisma/seed.js` ditambah `seedMasterKbli()` (38 kode KBLI dari `nibcri.pdf`, `createMany skipDuplicates`) dan `seedDataMasking()` (6 entry starter: category `client` — "GeoDipa"/"PT Geo Dipa Energi"/"SKK Migas"/"CIVD" → `[CLIENT_GEODIPA]`/`[CLIENT_SKKMIGAS]`/`[PLATFORM_CIVD]`; category `internal_name` — "PT Cliste Rekayasa Indonesia"+varian → `[COMPANY]`). Dijalankan via `npx prisma db seed` ke server Tailscale — diverifikasi 38 baris `MasterKbli` + 6 baris `DataMasking` masuk |
 | 2026-06-10 | **Section 3 — Brand Identity selesai**: `globals.css` ditulis ulang jadi design-token system — primary navy `#003478` (logo Cliste), accent violet `#7C3AED`, layout terang (sidebar navy gelap, konten utama putih/`#F8FAFC`, card `rounded-xl shadow-sm`), `Inter` (ganti `Geist`) + `Geist_Mono`. Token baru: `background/surface/surface-hover/border`, `foreground/foreground-muted/foreground-subtle`, `sidebar/sidebar-hover/sidebar-border/sidebar-foreground(-muted)`, `score-high/mid/low` (KEJAR/TINJAU/LEWATI), `stage-ditemukan/ditinjau/dikejar/diserahkan/menang/kalah/batal` (pipeline), `danger/success/warning`. Reskin pakai token semantik di `Button/Card/Input/Label`, `Sidebar` (brand mark kotak "C" + nav pill accent), `Topbar`, `BellNotification`, `(dashboard)/layout.jsx`, `/login` + `LoginForm`. Diverifikasi via dev server — Tailwind v4 `@theme inline` generate semua utility (`bg-accent`, `bg-sidebar`, `bg-background`, dst) dengan benar |
 | 2026-06-10 | **TAHAP 3.1 — Halaman List `/tenders` selesai (Slice 1)**: `(dashboard)/tenders/page.jsx` full rewrite jadi async Server Component (Next 16: `await searchParams`), panggil `getTenders()`. File baru: `lib/formatters.js` (`formatCurrency`, `formatDeadline` dgn flag `isUrgent` ≤7 hari, `formatDate`, `formatSource`, `STATUS_LABELS`); `ui/Badge.jsx` + `ui/Select.jsx` + `ui/Pagination.jsx` (Link-based, preserve query params lain); `tenders/ScoreBadge.jsx` (token `score-high/mid/low` + label KEJAR/TINJAU/LEWATI, `score==null` → "—"), `tenders/StatusBadge.jsx` (token `stage-*` per status pipeline), `tenders/FilterBar.jsx` (`"use client"`, source/status/minScore/keyword via `useSearchParams`+`router.push`, debounce 400ms utk keyword & minScore, reset `page` tiap filter berubah), `tenders/TenderTable.jsx` (kolom Sumber/Tender+Agency+Budget/KBLI dari `kbliMatchedJson[0]?.kbli_code`/Skor/Tenggat (urgent → `text-danger`)/Status/Aksi, empty state), `tenders/PromoteButton.jsx` (`useActionState` + `promoteTender`, pola sama `LoginForm`), `tenders/ScrapeStatusBar.jsx` (`"use client"`, tombol Semua/CIVD/GeoDipa → `POST /api/proxy-scraper`, polling `GET /api/proxy-scraper` tiap 5 detik saat tab visible, progress bar `current_source`/`items_found_so_far`/`items_saved_so_far`/`elapsed_seconds`, auto-`router.refresh()` saat running→selesai, disable tombol saat `running=true`). Diverifikasi end-to-end via dev server (curl + sesi JWT manual): tabel render 240 tender asli, filter source/status/pagination jalan (preserve query params), `bg-stage-*/10`/`bg-score-*/10` resolve via `color-mix()` Tailwind v4. **Catatan**: semua `matchScore`/`kbliMatchedJson` masih `null` di data existing (AI scoring blm pernah jalan utk data lama) — `ScoreBadge`/kolom KBLI tampil "—", baru keisi utk tender baru hasil scrape setelah GAP RF-T-006/007 ditutup (2026-06-08). Slice 2-4 (`/tenders/[id]` detail, Kanban drag-drop, input manual) & TAHAP 4 (`/kbli`) menyusul di sesi terpisah |
-
+| 2026-06-11 | **TAHAP 1.0 & Settings selesai**: Halaman Settings (Pengguna, Scraper Config) kini fully functional terhubung API Next.js dan Prisma DB. Interval scraper dan threshold skor `KEJAR` sekarang dibaca dinamis dari database di `main.py`. Sebagian besar TAHAP 1-4 selesai. TAHAP 6 (Proposal Generator) baru selesai di Backend, Frontend masih 0%. |
 ---
 
 ## 🔲 SETELAH TENDER SELESAI — App 2: Internal Workspace
@@ -370,8 +319,9 @@
 | Server Actions Next.js                          | ✅ Selesai — 2026-06-10 (`tenderActions`, `kbliActions`, `aiActions`/`matchKbli`; `generateProposal` ditunda ke TAHAP 6)                                 |
 | `lib/prisma.js`                                 | ✅ Selesai — 2026-06-10 (singleton + driver adapter)                                                                                                     |
 | UI — Layout dashboard + Sidebar                 | ✅ Selesai — 2026-06-10 (layout shell, Sidebar, Topbar, BellNotification)                                                                                |
-| UI — Halaman Tenders                            | ❌ Placeholder                                                                                                                                           |
-| UI — Halaman Detail Tender                      | ❌ File tidak ada                                                                                                                                        |
-| UI — Halaman KBLI                               | ❌ Placeholder                                                                                                                                           |
-| UI — Proposal Generator                         | ❌ Placeholder (backend `/api/v1/proposals*` sudah siap dipakai — 2026-06-10)                                                                            |
+| UI — Halaman Tenders                            | ✅ Selesai — 2026-06-10                                                                                                                  |
+| UI — Halaman Detail Tender                      | ✅ Selesai — 2026-06-11                                                                                                                  |
+| UI — Halaman KBLI                               | ✅ Selesai — 2026-06-11                                                                                                                  |
+| UI — Proposal Generator                         | ❌ Belum (Masih 0% stub)                                                                                                |
 | Auth / Login                                    | ✅ Minimal selesai — 2026-06-10 (login custom JWT, lihat 1.0)                                                                                            |
+

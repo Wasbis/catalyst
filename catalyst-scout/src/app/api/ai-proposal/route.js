@@ -24,6 +24,7 @@ export async function POST(request) {
         company_name: body.company_name,
         use_masking: body.use_masking ?? true,
         sections_to_replace: body.sections_to_replace ?? null,
+        user_requirements: body.user_requirements ?? null,
       }),
     });
 

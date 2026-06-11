@@ -1,0 +1,473 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); }
+.root { padding: 1.5rem 0; }
+
+.section { margin-bottom: 2rem; }
+.section-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 1rem; padding-bottom: 0.6rem;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+.section-header i { font-size: 18px; color: var(--color-text-secondary); }
+.section-title { font-size: 15px; font-weight: 500; color: var(--color-text-primary); }
+.section-badge {
+  font-size: 11px; padding: 2px 8px;
+  border-radius: 99px; font-weight: 500;
+}
+.badge-board { background: #E6F1FB; color: #0C447C; }
+.badge-card { background: #EAF3DE; color: #27500A; }
+.badge-detail { background: #EEEDFE; color: #3C3489; }
+.badge-ux { background: #FAEEDA; color: #633806; }
+
+.grid { display: grid; gap: 10px; }
+.grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+.feat-card {
+  background: var(--color-background-primary);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: var(--border-radius-md);
+  padding: 12px 14px;
+}
+.feat-card-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.feat-card-icon { font-size: 16px; color: var(--color-text-secondary); margin-top: 1px; flex-shrink: 0; }
+.feat-card-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); line-height: 1.4; }
+.feat-card-desc { font-size: 12px; color: var(--color-text-secondary); line-height: 1.6; }
+
+.sub-list { list-style: none; padding: 0; margin: 0; }
+.sub-list li {
+  font-size: 12px; color: var(--color-text-secondary);
+  padding: 3px 0;
+  padding-left: 14px;
+  position: relative;
+  line-height: 1.5;
+}
+.sub-list li::before {
+  content: '–';
+  position: absolute; left: 0;
+  color: var(--color-text-secondary);
+}
+.sub-list li strong { color: var(--color-text-primary); font-weight: 500; }
+
+.flow-row {
+  display: flex; gap: 0; align-items: stretch;
+  flex-wrap: wrap;
+}
+.flow-step {
+  flex: 1; min-width: 120px;
+  background: var(--color-background-secondary);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-right: none;
+  padding: 10px 12px;
+}
+.flow-step:last-child { border-right: 0.5px solid var(--color-border-tertiary); border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0; }
+.flow-step:first-child { border-radius: var(--border-radius-md) 0 0 var(--border-radius-md); }
+.flow-step-num { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 3px; }
+.flow-step-label { font-size: 12px; font-weight: 500; color: var(--color-text-primary); }
+.flow-step-sub { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; line-height: 1.4; }
+
+.divider { height: 0.5px; background: var(--color-border-tertiary); margin: 1.5rem 0; }
+
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag {
+  font-size: 11px; padding: 3px 10px;
+  border-radius: 99px;
+  border: 0.5px solid var(--color-border-secondary);
+  color: var(--color-text-secondary);
+}
+
+.priority-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.priority-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 4px 10px;
+  border-radius: var(--border-radius-md);
+  background: var(--color-background-secondary);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dot-urgent { background: #E24B4A; }
+.dot-high { background: #EF9F27; }
+.dot-medium { background: #378ADD; }
+.dot-low { background: #639922; }
+</style>
+
+<div class="root">
+
+  <div class="section">
+    <div class="section-header">
+      <i class="ti ti-layout-kanban" aria-hidden="true"></i>
+      <span class="section-title">Board-level navigation & interactions</span>
+      <span class="section-badge badge-board">Board</span>
+    </div>
+    <div class="grid grid-2">
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-columns" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Column management</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Add column</strong> — klik "+ Add column" di ujung kanan board</li>
+          <li><strong>Rename column</strong> — double-click header column → inline edit</li>
+          <li><strong>Reorder column</strong> — drag header column ke posisi baru</li>
+          <li><strong>Delete column</strong> — hover header → ⋯ menu → Delete (konfirmasi jika ada card)</li>
+          <li><strong>Column color</strong> — pilih warna accent dari color picker</li>
+          <li><strong>Column limit (WIP)</strong> — set max card per column, overflow highlight merah</li>
+          <li><strong>Collapse column</strong> — klik chevron header → lipat jadi bar vertikal sempit</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-drag-drop" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Drag & drop mechanics</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Card drag antar column</strong> — otomatis update status</li>
+          <li><strong>Card reorder dalam column</strong> — drag up/down ubah urutan/prioritas</li>
+          <li><strong>Multi-select drag</strong> — shift+klik beberapa card → drag sekaligus</li>
+          <li><strong>Drag preview</strong> — ghost card semi-transparent saat drag</li>
+          <li><strong>Drop zone highlight</strong> — column glow + gap indicator saat hover</li>
+          <li><strong>Undo drop</strong> — Ctrl+Z kembalikan posisi sebelumnya</li>
+          <li><strong>Keyboard drag</strong> — Space pick card, arrow keys pindah, Space drop</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-filter" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Filter & grouping</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Filter by assignee</strong> — multi-select, dim card yang tidak match</li>
+          <li><strong>Filter by label/tag</strong> — AND/OR mode</li>
+          <li><strong>Filter by due date</strong> — overdue, this week, this month</li>
+          <li><strong>Filter by priority</strong> — urgent / high / medium / low</li>
+          <li><strong>Search card</strong> — real-time highlight by title/description</li>
+          <li><strong>Group by</strong> — switcher: Status / Assignee / Priority / Label / Date</li>
+          <li><strong>Active filter chip</strong> — ditampilkan di toolbar, bisa dismiss satu-satu</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-eye" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">View controls</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Zoom level</strong> — compact / normal / comfortable card size</li>
+          <li><strong>Hide empty columns</strong> — toggle dari board settings</li>
+          <li><strong>Card fields visibility</strong> — pilih field mana yang muncul di card preview</li>
+          <li><strong>Board vs Table toggle</strong> — switch ke table view tanpa pindah halaman</li>
+          <li><strong>Timeline/Gantt toggle</strong> — switch ke timeline jika ada due date</li>
+          <li><strong>Fullscreen mode</strong> — hide sidebar, expand board</li>
+          <li><strong>Save view preset</strong> — simpan kombinasi filter+grouping sebagai named view</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <i class="ti ti-click" aria-hidden="true"></i>
+      <span class="section-title">Card quick actions (tanpa buka detail)</span>
+      <span class="section-badge badge-card">Card</span>
+    </div>
+    <div class="grid grid-2">
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-mouse" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Hover state actions</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Quick assignee</strong> — avatar picker muncul saat hover kanan atas card</li>
+          <li><strong>Quick priority</strong> — flag icon → pilih priority inline</li>
+          <li><strong>Quick due date</strong> — date badge → mini calendar popover</li>
+          <li><strong>Card menu (⋯)</strong> — Edit, Duplicate, Move to, Copy link, Delete</li>
+          <li><strong>Drag handle</strong> — muncul di kiri card saat hover</li>
+          <li><strong>Mark complete</strong> — checkbox di kiri atas, klik langsung selesai</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-checkbox" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Multi-select bulk actions</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Select mode</strong> — Shift+klik atau checkbox mode dari toolbar</li>
+          <li><strong>Bulk move</strong> — pindah semua card terpilih ke column lain</li>
+          <li><strong>Bulk assign</strong> — set assignee ke semua selected cards</li>
+          <li><strong>Bulk label</strong> — tambah/hapus label dari selection</li>
+          <li><strong>Bulk due date</strong> — set due date sekaligus</li>
+          <li><strong>Bulk delete</strong> — konfirmasi dialog sebelum eksekusi</li>
+          <li><strong>Bulk archive</strong> — sembunyikan card dari board tanpa hapus</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <i class="ti ti-layout-sidebar-right" aria-hidden="true"></i>
+      <span class="section-title">Card detail panel (klik buka)</span>
+      <span class="section-badge badge-detail">Detail</span>
+    </div>
+
+    <div class="flow-row" style="margin-bottom: 1rem;">
+      <div class="flow-step">
+        <div class="flow-step-num">01</div>
+        <div class="flow-step-label">Klik card</div>
+        <div class="flow-step-sub">URL berubah ke /board/[id]/card/[cardId]</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-num">02</div>
+        <div class="flow-step-label">Slide-in panel</div>
+        <div class="flow-step-sub">Right drawer, board tetap visible di kiri</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-num">03</div>
+        <div class="flow-step-label">Full page option</div>
+        <div class="flow-step-sub">Open as full page button di kanan atas panel</div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-step-num">04</div>
+        <div class="flow-step-label">Close</div>
+        <div class="flow-step-sub">Esc / klik backdrop / tombol X, URL kembali</div>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-forms" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Header & properties panel</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Title</strong> — klik langsung edit, auto-save on blur</li>
+          <li><strong>Status dropdown</strong> — pilih column tujuan, card pindah di board</li>
+          <li><strong>Assignee(s)</strong> — multi-assignee, avatar + nama, searchable</li>
+          <li><strong>Priority</strong> — Urgent / High / Medium / Low + None</li>
+          <li><strong>Due date</strong> — date picker + optional time, countdown badge</li>
+          <li><strong>Labels/Tags</strong> — multi-select, color-coded, creatable inline</li>
+          <li><strong>Parent / Epic link</strong> — tautkan ke card/epic lain</li>
+          <li><strong>Custom fields</strong> — Number, Text, URL, Select, Date, Checkbox, Person</li>
+          <li><strong>Story points / Estimate</strong> — field numerik untuk sprint planning</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-writing" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Rich text description</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Block editor</strong> — Notion-style slash command (<strong>/</strong>) untuk insert block</li>
+          <li><strong>Heading, paragraph, divider</strong> — basic text blocks</li>
+          <li><strong>Bulleted & numbered list</strong> — termasuk nested list</li>
+          <li><strong>Checklist/To-do</strong> — progress shown di card preview (3/5 ✓)</li>
+          <li><strong>Code block</strong> — syntax highlight, copy button</li>
+          <li><strong>Table block</strong> — inline table dengan add row/col</li>
+          <li><strong>Image & file embed</strong> — drag drop atau paste langsung</li>
+          <li><strong>Mention (@user)</strong> — trigger notifikasi ke user yang disebut</li>
+          <li><strong>Card link embed (/card)</strong> — embed preview card lain inline</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-paperclip" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Attachments</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Upload file</strong> — drag drop, paste, atau browse, multi-file</li>
+          <li><strong>Image preview</strong> — thumbnail grid, klik lightbox</li>
+          <li><strong>Document preview</strong> — inline untuk PDF, office files</li>
+          <li><strong>External link attach</strong> — URL unfurl jadi preview card</li>
+          <li><strong>Version/rename/delete</strong> — per attachment actions</li>
+          <li><strong>Attachment count</strong> — badge di card preview board</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-messages" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Activity & comments</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Comment thread</strong> — reply, mention, emoji react</li>
+          <li><strong>Rich comment</strong> — bold, italic, code, list dalam comment</li>
+          <li><strong>Edit / delete comment</strong> — dengan history label "edited"</li>
+          <li><strong>Activity log</strong> — semua perubahan field tercatat otomatis</li>
+          <li><strong>Toggle activity/comments</strong> — filter tampilan tab</li>
+          <li><strong>Notification subscribe</strong> — watch card → dapat notif semua update</li>
+          <li><strong>Resolve comment</strong> — collapse resolved threads</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-link" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Relationships & dependencies</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Linked cards</strong> — "blocks / blocked by / related to / duplicate of"</li>
+          <li><strong>Sub-tasks</strong> — card anak, nested hierarchy, progress roll-up ke parent</li>
+          <li><strong>Epic/parent link</strong> — attach ke epic atau initiative lebih besar</li>
+          <li><strong>External issue link</strong> — link ke Jira, GitHub Issue, Notion page</li>
+          <li><strong>Dependency warning</strong> — highlight jika blocked card sudah overdue</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-clock" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Time tracking</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>Estimate vs actual</strong> — input estimate, log actual time</li>
+          <li><strong>Timer</strong> — start/stop timer langsung dari card detail</li>
+          <li><strong>Manual log</strong> — tambah entri waktu manual dengan deskripsi</li>
+          <li><strong>Time log history</strong> — list entri per user</li>
+          <li><strong>Progress bar</strong> — estimate vs logged time visualisasi</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <i class="ti ti-bolt" aria-hidden="true"></i>
+      <span class="section-title">Automation & advanced UX</span>
+      <span class="section-badge badge-ux">Automation</span>
+    </div>
+    <div class="grid grid-3">
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-robot" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Automation rules</span>
+        </div>
+        <ul class="sub-list">
+          <li>When card moved → assign user</li>
+          <li>When due date passed → move to Overdue</li>
+          <li>When label added → notify Slack/email</li>
+          <li>When all subtasks done → move parent</li>
+          <li>Recurring card creation (sprint reset)</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-bell" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Notifications</span>
+        </div>
+        <ul class="sub-list">
+          <li>Assigned to card → in-app + email</li>
+          <li>Comment mention → instant notif</li>
+          <li>Due date reminder (1d, 1h before)</li>
+          <li>Card moved oleh orang lain → notif</li>
+          <li>Notification center dengan mark all read</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-template" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Templates</span>
+        </div>
+        <ul class="sub-list">
+          <li>Card template — prefilled fields + description</li>
+          <li>Board template — set kolom + automasi default</li>
+          <li>Save existing card as template</li>
+          <li>Template gallery per kategori proyek</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-history" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">History & versioning</span>
+        </div>
+        <ul class="sub-list">
+          <li>Full field change log per card</li>
+          <li>Description version history (diff view)</li>
+          <li>Restore ke versi sebelumnya</li>
+          <li>Archive card (soft delete, recoverable)</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-chart-bar" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Analytics / reporting</span>
+        </div>
+        <ul class="sub-list">
+          <li>Cycle time per card (created → done)</li>
+          <li>Throughput chart per sprint/minggu</li>
+          <li>WIP violations history</li>
+          <li>Cumulative flow diagram per board</li>
+        </ul>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-card-header">
+          <i class="ti ti-keyboard" aria-hidden="true" class="feat-card-icon"></i>
+          <span class="feat-card-title">Keyboard shortcuts</span>
+        </div>
+        <ul class="sub-list">
+          <li><strong>N</strong> — new card di column aktif</li>
+          <li><strong>E</strong> — edit card yang di-hover</li>
+          <li><strong>F</strong> — focus search/filter bar</li>
+          <li><strong>← →</strong> — navigasi antar column</li>
+          <li><strong>Esc</strong> — close detail panel / deselect</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <i class="ti ti-list-check" aria-hidden="true"></i>
+      <span class="section-title">Card preview — field yang muncul di board (konfigurable)</span>
+    </div>
+    <div class="tag-row">
+      <span class="tag">Card title</span>
+      <span class="tag">Assignee avatar(s)</span>
+      <span class="tag">Priority flag</span>
+      <span class="tag">Due date badge</span>
+      <span class="tag">Labels/tags</span>
+      <span class="tag">Checklist progress (3/5)</span>
+      <span class="tag">Attachment count</span>
+      <span class="tag">Comment count</span>
+      <span class="tag">Story points</span>
+      <span class="tag">Cover image</span>
+      <span class="tag">Epic/parent label</span>
+      <span class="tag">Linked card indicator</span>
+      <span class="tag">Time estimate</span>
+      <span class="tag">Custom field value</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <i class="ti ti-flag" aria-hidden="true"></i>
+      <span class="section-title">Priority system</span>
+    </div>
+    <div class="priority-row">
+      <div class="priority-item"><div class="dot dot-urgent"></div><span style="font-size:12px; color: var(--color-text-primary);">Urgent</span></div>
+      <div class="priority-item"><div class="dot dot-high"></div><span style="font-size:12px; color: var(--color-text-primary);">High</span></div>
+      <div class="priority-item"><div class="dot dot-medium"></div><span style="font-size:12px; color: var(--color-text-primary);">Medium</span></div>
+      <div class="priority-item"><div class="dot dot-low"></div><span style="font-size:12px; color: var(--color-text-primary);">Low</span></div>
+      <div class="priority-item"><div class="dot" style="background: var(--color-border-secondary)"></div><span style="font-size:12px; color: var(--color-text-secondary);">No priority</span></div>
+    </div>
+  </div>
+
+</div>

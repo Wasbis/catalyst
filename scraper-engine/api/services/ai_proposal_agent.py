@@ -71,13 +71,14 @@ class AIProposalAgent:
         kbli_description: str,
         company_name: str = "PT Cliste Rekayasa Indonesia",
         sections: Optional[List[str]] = None,
+        user_requirements: Optional[str] = None,
     ) -> Dict[str, Any]:
         effective_sections = sections or DEFAULT_PROPOSAL_SECTIONS
         try:
             if self._client:
                 return self._generate_with_claude(
                     tender_title, tender_text, kbli_code, kbli_description,
-                    company_name, effective_sections,
+                    company_name, effective_sections, user_requirements,
                 )
             logger.warning("[AIProposalAgent] ANTHROPIC_API_KEY tidak di-set, pakai template fallback")
             return self._generate_from_templates(
@@ -100,6 +101,7 @@ class AIProposalAgent:
         kbli_description: str,
         company_name: str,
         sections: List[str],
+        user_requirements: Optional[str] = None,
     ) -> Dict[str, Any]:
         text_snippet = tender_text[:4000] if len(tender_text) > 4000 else tender_text
 
@@ -146,6 +148,9 @@ Rules:
 
 Section guidelines:
 {chr(10).join(section_guidelines)}"""
+
+        if user_requirements:
+            prompt += f"\n\nADDITIONAL USER REQUIREMENTS/CONSTRAINTS (YOU MUST STRICTLY FOLLOW THESE):\n{user_requirements}\n"
 
         message = self._client.messages.create(
             model="claude-haiku-4-5-20251001",

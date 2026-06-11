@@ -109,6 +109,42 @@ class Notification(Base):
 
 
 # ---------------------------------------------------------------------------
+# AppSetting
+# Tabel Key-Value untuk pengaturan aplikasi
+# ---------------------------------------------------------------------------
+class AppSetting(Base):
+    __tablename__ = "AppSetting"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column("updatedAt", DateTime(timezone=True), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<AppSetting '{self.key}'>"
+
+
+# ---------------------------------------------------------------------------
+# ScraperSetting
+# Konfigurasi scraper schedule dan target
+# ---------------------------------------------------------------------------
+class ScraperSetting(Base):
+    __tablename__ = "ScraperSetting"
+
+    id = Column(Integer, primary_key=True, index=True)
+    target_name = Column("targetName", String, nullable=False)
+    target_url = Column("targetUrl", Text, nullable=False)
+    cron_schedule = Column("cronSchedule", String, nullable=False)
+    is_active = Column("isActive", Boolean, default=True)
+    last_run_at = Column("lastRunAt", DateTime(timezone=True), nullable=True)
+    last_count = Column("lastCount", Integer, nullable=True)
+    last_error = Column("lastError", Text, nullable=True)
+    updated_at = Column("updatedAt", DateTime(timezone=True), onupdate=func.now())
+
+    def __repr__(self) -> str:
+        return f"<ScraperSetting '{self.target_name}'>"
+
+
+# ---------------------------------------------------------------------------
 # ScrapingJob
 # Log setiap job scraping — untuk RF-T-012 (logging) dan RF-T-013 (deteksi 2x gagal).
 # Harus didefinisikan sebelum TenderResult karena TenderResult punya FK ke sini.

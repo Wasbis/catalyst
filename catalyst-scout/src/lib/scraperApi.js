@@ -1,9 +1,15 @@
-const SCRAPER_API_URL = process.env.SCRAPER_API_URL || "http://localhost:8000"; // lokal dev pakai localhost, Docker pakai http://scraper-engine:8000
+const SCRAPER_API_URL = process.env.SCRAPER_API_URL || "http://127.0.0.1:8000"; // lokal dev pakai 127.0.0.1, Docker pakai http://scraper-engine:8000
 
 export async function scraperFetch(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
+  const headers = { ...options.headers };
+  if (!isFormData && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const res = await fetch(`${SCRAPER_API_URL}${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", ...options.headers },
+    headers,
   });
 
   const body = await res.json().catch(() => null);

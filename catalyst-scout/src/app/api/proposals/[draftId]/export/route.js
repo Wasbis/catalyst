@@ -1,0 +1,30 @@
+import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
+
+export async function GET(request, { params }) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
+
+  const { draftId } = params;
+  const SCRAPER_API_URL = process.env.SCRAPER_API_URL || "http://127.0.0.1:8000";
+
+  try {
+    const res = await fetch(`${SCRAPER_API_URL}/api/v1/proposals/${draftId}/export`);
+    
+    if (!res.ok) {
+      return new NextResponse(`Error: ${res.statusText}`, { status: res.status });
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    const headers = new Headers();
+    headers.set("Content-Type", res.headers.get("Content-Type") || "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    headers.set("Content-Disposition", res.headers.get("Content-Disposition") || `attachment; filename="proposal_${draftId}.docx"`);
+
+    return new NextResponse(arrayBuffer, { headers });
+  } catch (err) {
+    console.error("Export error:", err);
+    return new NextResponse("Internal Server Error", { status: 500 });
+  }
+}
