@@ -12,8 +12,8 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - ./scraper-engine/api/services/downloads:/code/api/services/downloads
-      - ./scraper-engine/storage:/code/storage
+      - ./scraper-engine/api/services/downloads:/code/api/services/downloads:z
+      - ./scraper-engine/storage:/code/storage:z
     restart: unless-stopped
 
   catalyst-scout:
