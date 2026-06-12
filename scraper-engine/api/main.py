@@ -36,7 +36,7 @@ from api.models.database import (
     init_db,
 )
 
-PROPOSAL_TEMPLATES_DIR = Path(__file__).parent.parent.parent / "storage" / "proposal_templates"
+PROPOSAL_TEMPLATES_DIR = Path(__file__).parent.parent / "storage" / "proposal_templates"
 PROPOSAL_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------

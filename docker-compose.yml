@@ -13,7 +13,7 @@ services:
       - "8001:8000"
     volumes:
       - ./scraper-engine/api/services/downloads:/code/api/services/downloads
-      - ./scraper-engine/storage:/storage
+      - ./scraper-engine/storage:/code/storage
     restart: unless-stopped
 
   catalyst-scout:
