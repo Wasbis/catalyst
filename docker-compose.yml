@@ -22,7 +22,24 @@ services:
     environment:
       - DATABASE_URL=postgresql://diya-catalyst:Abid090300@postgres-db:5432/catalystDB
     ports:
-      - "8000:8000"
+      - "8001:8000"
+    restart: unless-stopped
+
+  catalyst-scout:
+    build:
+      context: ./catalyst-scout
+      dockerfile: Dockerfile
+    container_name: catalyst_scout
+    env_file:
+      - ./catalyst-scout/.env
+    environment:
+      - DATABASE_URL=postgresql://diya-catalyst:Abid090300@postgres-db:5432/catalystDB
+      - SCRAPER_API_URL=http://scraper-engine:8000
+    depends_on:
+      - postgres-db
+      - scraper-engine
+    ports:
+      - "3001:3000"
     restart: unless-stopped
 
 volumes:

@@ -2,6 +2,9 @@ FROM python:3.10-slim
 
 WORKDIR /code
 
+# Install torch CPU-only duluan (versi default CUDA ~2GB, kelamaan didownload)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
 # Copy requirements dan install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
