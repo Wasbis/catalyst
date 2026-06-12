@@ -6,16 +6,22 @@ services:
     container_name: catalyst_scraper_engine
     environment:
       - DATABASE_URL=postgresql://diya-catalyst:Abid090300@host.docker.internal:5432/catalystDB
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "8001:8000"
+    volumes:
+      - ./scraper-engine/api/services/downloads:/code/api/services/downloads
+      - ./scraper-engine/storage:/storage
     restart: unless-stopped
 
   catalyst-scout:
     build:
       context: ./catalyst-scout
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SCRAPER_API_URL: https://catalyst-api.diya.my.id
     container_name: catalyst_scout
     env_file:
       - ./catalyst-scout/.env

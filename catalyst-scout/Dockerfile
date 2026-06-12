@@ -13,6 +13,10 @@ COPY . .
 # Prisma generate butuh DATABASE_URL terdefinisi, tapi nggak perlu koneksi nyata saat build
 ENV DATABASE_URL="postgresql://user:pass@localhost:5432/db"
 RUN npx prisma generate
+
+# NEXT_PUBLIC_* di-bake saat build time — harus di-set di build stage, bukan runtime
+ARG NEXT_PUBLIC_SCRAPER_API_URL
+ENV NEXT_PUBLIC_SCRAPER_API_URL=$NEXT_PUBLIC_SCRAPER_API_URL
 RUN npm run build
 
 # --- runner ---
