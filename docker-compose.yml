@@ -1,26 +1,13 @@
-version: "3.8"
-
 services:
-  postgres-db:
-    image: postgres:15-alpine
-    container_name: catalyst_db
-    environment:
-      POSTGRES_USER: diya-catalyst
-      POSTGRES_PASSWORD: Abid090300
-      POSTGRES_DB: catalystDB
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-
   scraper-engine:
     build:
       context: ./scraper-engine
       dockerfile: Dockerfile
     container_name: catalyst_scraper_engine
     environment:
-      - DATABASE_URL=postgresql://diya-catalyst:Abid090300@postgres-db:5432/catalystDB
+      - DATABASE_URL=postgresql://diya-catalyst:Abid090300@host.docker.internal:5432/catalystDB
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8001:8000"
     restart: unless-stopped
@@ -33,14 +20,12 @@ services:
     env_file:
       - ./catalyst-scout/.env
     environment:
-      - DATABASE_URL=postgresql://diya-catalyst:Abid090300@postgres-db:5432/catalystDB
+      - DATABASE_URL=postgresql://diya-catalyst:Abid090300@host.docker.internal:5432/catalystDB
       - SCRAPER_API_URL=http://scraper-engine:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - postgres-db
       - scraper-engine
     ports:
       - "3001:3000"
     restart: unless-stopped
-
-volumes:
-  pgdata:
