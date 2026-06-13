@@ -1639,6 +1639,50 @@ def _notify_on_scraper_failure(db: Session, job: ScrapingJob) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Notifikasi hasil tiap run scraper — sukses (ringkasan baru/duplikat/total)
+# atau gagal (pesan error), per platform.
+# ---------------------------------------------------------------------------
+def _notify_scrape_result(
+    db: Session,
+    job: ScrapingJob,
+    scraper_stats: dict,
+    failed_items: int,
+) -> None:
+    source_label = job.source.upper()
+
+    if job.status == "failed":
+        title = f"Scrape {source_label} gagal"
+        message = f"Scraper '{source_label}' gagal berjalan. Error: {job.error_message or '-'}"
+    else:
+        duplicate = scraper_stats["duplicate"]
+        skipped_closed = scraper_stats["skipped_closed"]
+        total_scanned = scraper_stats["new"] + duplicate + skipped_closed
+        title = f"Scrape {source_label} selesai"
+        message = (
+            f"Total {total_scanned} tender dipindai — "
+            f"{job.tenders_new} baru, {job.tenders_updated} diupdate, "
+            f"{duplicate} duplikat"
+            + (f", {skipped_closed} dilewati (tutup)" if skipped_closed else "")
+            + (f", {failed_items} gagal disimpan" if failed_items else "")
+            + "."
+        )
+
+    try:
+        db.add(
+            Notification(
+                title=title,
+                message=message,
+                action_link=f"/scraper/log?source={job.source}",
+            )
+        )
+        db.commit()
+        logger.info(f"[TASK][{job.source}] Notifikasi hasil scrape terkirim: {title}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Gagal menyimpan notifikasi hasil scrape: {e}")
+
+
+# ---------------------------------------------------------------------------
 # BACKGROUND TASK — SCRAPER RUNNER
 # ---------------------------------------------------------------------------
 async def _run_scraper_task(
@@ -1692,6 +1736,7 @@ async def _run_scraper_task(
     scraper = CatalystScraper()
     total_found = total_saved = total_updated = 0
     total_skipped_fp = total_skipped_url = total_failed = 0
+    total_scraper_duplicate = total_scraper_skipped_closed = 0
 
     # ── RF-T-006/007: load Master KBLI + masking sekali di awal run ─────────
     # supaya tiap tender baru langsung di-scoring sebelum disimpan (lihat
@@ -1719,6 +1764,7 @@ async def _run_scraper_task(
             db.refresh(job)
 
             items: List[dict] = []
+            scraper_stats = {"new": 0, "duplicate": 0, "skipped_closed": 0}
             saved = updated = skipped_fp = skipped_url = failed = 0
             job_error: Optional[str] = None
 
@@ -1745,7 +1791,7 @@ async def _run_scraper_task(
                         f"{len(existing_fingerprints)} fingerprints, "
                         f"{len(existing_geodipa_urls)} GeoDipa URLs."
                     )
-                    items = await scraper.scrape_geodipa(
+                    items, scraper_stats = await scraper.scrape_geodipa(
                         existing_urls=existing_geodipa_urls,
                         on_progress=_on_progress,
                     )
@@ -1754,7 +1800,7 @@ async def _run_scraper_task(
                         f"[TASK][{platform}] Dedup loaded — "
                         f"{len(existing_fingerprints)} fingerprints."
                     )
-                    items = await scraper.scrape_civd(
+                    items, scraper_stats = await scraper.scrape_civd(
                         max_pages=max_pages,
                         keyword=keyword,
                         existing_fingerprints=existing_fingerprints,
@@ -1763,6 +1809,8 @@ async def _run_scraper_task(
 
                 logger.info(f"[TASK][{platform}] scraper returned {len(items)} items")
                 total_found += len(items)
+                total_scraper_duplicate += scraper_stats["duplicate"]
+                total_scraper_skipped_closed += scraper_stats["skipped_closed"]
                 _scraper_status["items_found_so_far"] = total_found
 
                 # ── Simpan ke DB ─────────────────────────────────────────
@@ -1937,6 +1985,7 @@ async def _run_scraper_task(
             db.commit()
 
             _notify_on_scraper_failure(db, job)
+            _notify_scrape_result(db, job, scraper_stats, failed)
 
             total_saved += saved
             total_updated += updated
@@ -1953,10 +2002,13 @@ async def _run_scraper_task(
             "last_duration_seconds": duration,
             "last_stats": {
                 "total_from_scraper": total_found,
+                "total_scanned": total_found + total_scraper_duplicate + total_scraper_skipped_closed,
                 "saved": total_saved,
                 "updated": total_updated,
                 "skipped_duplicate_fingerprint": total_skipped_fp,
                 "skipped_duplicate_url": total_skipped_url,
+                "scraper_duplicate": total_scraper_duplicate,
+                "scraper_skipped_closed": total_scraper_skipped_closed,
                 "failed": total_failed,
             },
         })
@@ -1965,6 +2017,18 @@ async def _run_scraper_task(
         logger.error(f"[TASK] Scraper error: {e}", exc_info=True)
         db.rollback()
         _scraper_status["last_error"] = str(e)
+        try:
+            db.add(
+                Notification(
+                    title=f"Scrape '{source}' gagal",
+                    message=f"Proses scrape gagal sebelum sempat berjalan. Error: {e}",
+                    action_link=f"/scraper/log?source={source}",
+                )
+            )
+            db.commit()
+        except Exception as notif_err:
+            db.rollback()
+            logger.error(f"Gagal menyimpan notifikasi error scraper: {notif_err}")
 
     finally:
         db.close()

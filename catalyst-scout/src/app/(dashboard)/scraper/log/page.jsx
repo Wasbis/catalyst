@@ -4,41 +4,70 @@ export const metadata = { title: "Scraper Log — Catalyst" };
 
 async function getStats() {
   try {
-    const [total, today] = await Promise.all([
+    const [total, today, bySource, latestJobs, jobs] = await Promise.all([
       prisma.tenderResult.count(),
       prisma.tenderResult.count({
         where: { scrapedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
       }),
+      prisma.tenderResult.groupBy({
+        by: ["source"],
+        _count: { id: true },
+      }),
+      Promise.all(
+        ["civd", "geodipa"].map((source) =>
+          prisma.scrapingJob.findFirst({
+            where: { source },
+            orderBy: { startedAt: "desc" },
+          })
+        )
+      ),
+      prisma.scrapingJob.findMany({
+        orderBy: { startedAt: "desc" },
+        take: 50,
+      }),
     ]);
-    const bySource = await prisma.tenderResult.groupBy({
-      by: ["source"],
-      _count: { id: true },
-    });
-    return { total, today, bySource };
-  } catch { return { total: 0, today: 0, bySource: [] }; }
+    return { total, today, bySource, latestJobs, jobs };
+  } catch {
+    return { total: 0, today: 0, bySource: [], latestJobs: [null, null], jobs: [] };
+  }
 }
 
-const MOCK_LOGS = [
-  { time: "2026-06-11 00:12", source: "CIVD", event: "Scrape selesai", count: 12, status: "ok" },
-  { time: "2026-06-10 12:08", source: "CIVD", event: "Scrape selesai", count: 8, status: "ok" },
-  { time: "2026-06-10 00:10", source: "GeoDipa", event: "Scrape selesai", count: 5, status: "ok" },
-  { time: "2026-06-09 12:15", source: "CIVD", event: "Connection timeout", count: 0, status: "error" },
-  { time: "2026-06-09 00:11", source: "GeoDipa", event: "Scrape selesai", count: 3, status: "ok" },
-];
+function formatDateTime(dateLike) {
+  if (!dateLike) return "—";
+  return new Intl.DateTimeFormat("id-ID", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(dateLike));
+}
+
+const SOURCE_LABELS = { civd: "CIVD", geodipa: "GeoDipa" };
+
+const TRIGGER_LABELS = { manual: "Manual", scheduled: "Terjadwal" };
 
 export default async function ScraperLogPage() {
-  const { total, today, bySource } = await getStats();
+  const { total, today, bySource, latestJobs, jobs } = await getStats();
 
   const civdCount = bySource.find((s) => s.source === "civd")?._count?.id ?? 0;
   const geodipaCount = bySource.find((s) => s.source === "geodipa")?._count?.id ?? 0;
+  const [latestCivd, latestGeodipa] = latestJobs;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Source status cards */}
       <div className="source-cards">
         {[
-          { name: "CIVD · SKK Migas", count: civdCount, interval: "tiap 12 jam", ok: true },
-          { name: "GeoDipa", count: geodipaCount, interval: "tiap 24 jam", ok: true },
+          {
+            name: "CIVD · SKK Migas",
+            count: civdCount,
+            interval: "tiap 12 jam",
+            ok: latestCivd ? latestCivd.status !== "failed" : true,
+          },
+          {
+            name: "GeoDipa",
+            count: geodipaCount,
+            interval: "tiap 24 jam",
+            ok: latestGeodipa ? latestGeodipa.status !== "failed" : true,
+          },
         ].map((src) => (
           <div key={src.name} className="source-card">
             <div className="source-card-head">
@@ -81,15 +110,36 @@ export default async function ScraperLogPage() {
             </tr>
           </thead>
           <tbody>
-            {MOCK_LOGS.map((log, i) => (
-              <tr key={i}>
-                <td>{log.time}</td>
-                <td>{log.source}</td>
-                <td>{log.event}</td>
-                <td>{log.count > 0 ? `+${log.count} tender` : "—"}</td>
-                <td className={log.status === "ok" ? "log-ok" : "log-err"}>{log.status === "ok" ? "✓ OK" : "✗ Error"}</td>
+            {jobs.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ textAlign: "center", padding: "20px 0", color: "var(--foreground-muted)" }}>
+                  Belum ada riwayat scrape.
+                </td>
               </tr>
-            ))}
+            )}
+            {jobs.map((job) => {
+              const event =
+                job.status === "running"
+                  ? "Sedang berjalan"
+                  : job.status === "failed"
+                  ? job.errorMessage || "Scrape gagal"
+                  : `Scrape selesai (${TRIGGER_LABELS[job.trigger] ?? job.trigger ?? "—"})`;
+              const result =
+                job.status === "running"
+                  ? "—"
+                  : `+${job.tendersNew ?? 0} baru / ${job.tendersFound ?? 0} total`;
+              return (
+                <tr key={job.id}>
+                  <td>{formatDateTime(job.startedAt)}</td>
+                  <td>{SOURCE_LABELS[job.source] ?? job.source}</td>
+                  <td>{event}</td>
+                  <td>{result}</td>
+                  <td className={job.status === "failed" ? "log-err" : job.status === "running" ? "" : "log-ok"}>
+                    {job.status === "failed" ? "✗ Error" : job.status === "running" ? "⏳ Berjalan" : "✓ OK"}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

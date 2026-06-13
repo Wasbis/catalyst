@@ -129,7 +129,7 @@ class CatalystScraper:
         max_pages: int = 85,
         existing_urls: List[str] = None,
         on_progress: Optional[Any] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Dict[str, int]]:
         from api.services.geodipa_scraper import GeodipaScraper
 
         geodipa = GeodipaScraper()
@@ -138,7 +138,12 @@ class CatalystScraper:
             existing_urls=existing_urls,
             on_progress=on_progress,
         )
-        return result.get("data", [])
+        stats = {
+            "new": result.get("new", 0),
+            "duplicate": result.get("duplicate", 0),
+            "skipped_closed": result.get("skipped_closed", 0),
+        }
+        return result.get("data", []), stats
 
     # =========================================================================
     # CIVD — delegates ke CIVDScraper (api/services/civd_scraper.py)
@@ -151,7 +156,7 @@ class CatalystScraper:
         announcement_types: List[int] = None,
         existing_fingerprints: set = None,
         on_progress: Optional[Any] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Dict[str, int]]:
         from api.services.civd_scraper import CIVDScraper
 
         civd = CIVDScraper()
@@ -162,7 +167,12 @@ class CatalystScraper:
             existing_fingerprints=existing_fingerprints or set(),
             on_progress=on_progress,
         )
-        return result.get("data", [])
+        stats = {
+            "new": result.get("new", 0),
+            "duplicate": result.get("duplicate", 0),
+            "skipped_closed": 0,
+        }
+        return result.get("data", []), stats
 
 
 # ---------------------------------------------------------------------------
@@ -175,12 +185,12 @@ if __name__ == "__main__":
         bot = CatalystScraper()
 
         print("\n=== TEST GEODIPA (3 hal) ===")
-        geo = await bot.scrape_geodipa(max_pages=3)
-        print(f"GeoDipa: {len(geo)} tender")
+        geo, geo_stats = await bot.scrape_geodipa(max_pages=3)
+        print(f"GeoDipa: {len(geo)} tender ({geo_stats})")
 
         print("\n=== TEST CIVD (type=1, 2 hal) ===")
-        civd = await bot.scrape_civd(max_pages=2, announcement_types=[1])
-        print(f"CIVD: {len(civd)} tender")
+        civd, civd_stats = await bot.scrape_civd(max_pages=2, announcement_types=[1])
+        print(f"CIVD: {len(civd)} tender ({civd_stats})")
         if civd:
             print(json.dumps(civd[0], indent=2, ensure_ascii=False))
 

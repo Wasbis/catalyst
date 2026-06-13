@@ -3,7 +3,7 @@ import Badge from "@/components/ui/Badge";
 import ScoreBadge from "@/components/tenders/ScoreBadge";
 import StatusBadge from "@/components/tenders/StatusBadge";
 import PromoteButton from "@/components/tenders/PromoteButton";
-import { formatCurrency, formatDeadline, formatSource } from "@/lib/formatters";
+import { formatCurrency, formatDeadline, formatSource, isRecentlyScraped } from "@/lib/formatters";
 
 const TABLE_HEADERS = ["Sumber", "Tender", "KBLI", "Skor", "Tenggat", "Status", "Aksi"];
 
@@ -40,15 +40,18 @@ export default function TenderTable({ data }) {
 
 function TenderRow({ tender }) {
   const kbliMatches = tender.kbliMatchedJson ? JSON.parse(tender.kbliMatchedJson) : [];
-  const topKbli = kbliMatches[0]?.kbli_code ?? "—";
   const deadline = formatDeadline(tender.deadlineDate);
+  const isNew = isRecentlyScraped(tender.scrapedAt);
 
   return (
-    <tr className="border-b border-border last:border-0 hover:bg-surface-hover">
+    <tr className={`border-b border-border last:border-0 hover:bg-surface-hover ${isNew ? "bg-accent/5" : ""}`}>
       <td className="px-4 py-3 align-top">
-        <Badge className="bg-surface-hover text-foreground-muted">
-          {formatSource(tender.source)}
-        </Badge>
+        <div className="flex flex-col items-start gap-1">
+          <Badge className="bg-surface-hover text-foreground-muted">
+            {formatSource(tender.source)}
+          </Badge>
+          {isNew && <Badge className="bg-accent/15 text-accent">Baru</Badge>}
+        </div>
       </td>
       <td className="px-4 py-3 align-top">
         <Link href={`/tenders/${tender.id}`} className="font-medium text-foreground hover:text-accent">

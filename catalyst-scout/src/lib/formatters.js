@@ -54,3 +54,11 @@ export function formatSource(source) {
   if (!source) return "—";
   return SOURCE_LABELS[source.toLowerCase()] ?? source.toUpperCase();
 }
+
+const RECENT_SCRAPE_MINUTES = 15;
+
+export function isRecentlyScraped(dateLike, minutes = RECENT_SCRAPE_MINUTES) {
+  if (!dateLike) return false;
+  const diffMs = Date.now() - new Date(dateLike).getTime();
+  return diffMs >= 0 && diffMs <= minutes * 60 * 1000;
+}

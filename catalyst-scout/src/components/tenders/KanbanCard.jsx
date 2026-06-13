@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import ScoreBadge from "@/components/tenders/ScoreBadge";
-import { formatDeadline, formatCurrency, formatSource } from "@/lib/formatters";
+import { formatDeadline, formatCurrency, formatSource, isRecentlyScraped } from "@/lib/formatters";
 import { VALID_TENDER_STATUSES } from "@/lib/tenderStatus";
 import { STATUS_LABELS } from "@/lib/formatters";
 
@@ -23,16 +23,28 @@ export default function KanbanCard({ tender, density = "normal", onStatusChange,
   const deadline = formatDeadline(tender.deadlineDate);
   const notesCount = countNotes(tender.notes);
   const srcClass = SOURCE_CHIP_CLASS[tender.source?.toLowerCase()] ?? "src-manual";
+  const isNew = isRecentlyScraped(tender.scrapedAt);
 
   return (
     <div
       data-card-id={tender.id}
       className={`kanban-card group ${isDragging ? "dragging" : ""}`}
-      style={{ opacity: dimmed ? 0.35 : 1, transition: "opacity 0.15s" }}
+      style={{
+        opacity: dimmed ? 0.35 : 1,
+        transition: "opacity 0.15s",
+        ...(isNew ? { boxShadow: "0 0 0 1.5px var(--accent)" } : {}),
+      }}
     >
       {/* Top row: source chip + score */}
       <div className="kc-top">
-        <span className={`source-chip ${srcClass}`}>{formatSource(tender.source)}</span>
+        <div className="flex items-center gap-1.5">
+          <span className={`source-chip ${srcClass}`}>{formatSource(tender.source)}</span>
+          {isNew && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-accent/15 text-accent">
+              Baru
+            </span>
+          )}
+        </div>
         <ScoreBadge score={tender.matchScore} recommendation={tender.recommendation} />
       </div>
 

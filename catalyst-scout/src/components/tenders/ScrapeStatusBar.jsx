@@ -66,6 +66,7 @@ export default function ScrapeStatusBar() {
   }
 
   const running = Boolean(status?.running);
+  const lastStats = !running ? status?.last_stats : null;
 
   return (
     <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -82,6 +83,12 @@ export default function ScrapeStatusBar() {
             {option.label}
           </Button>
         ))}
+        {triggering && !running && (
+          <span className="flex items-center gap-2 text-xs text-foreground-muted">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-accent" />
+            Memulai scrape...
+          </span>
+        )}
         {triggerError && <p className="text-xs text-danger">{triggerError}</p>}
       </div>
 
@@ -96,6 +103,29 @@ export default function ScrapeStatusBar() {
             {status.items_failed_so_far > 0 && `, gagal ${status.items_failed_so_far}`}
           </span>
         </div>
+      )}
+
+      {!running && lastStats && (
+        <div className="flex items-center gap-2 text-sm text-foreground-muted">
+          <span className="h-2 w-2 rounded-full bg-success" />
+          <span>
+            Scrape {formatSource(status.last_source)} selesai
+            {status.last_duration_seconds != null && ` · ${Math.round(status.last_duration_seconds)}s`}
+            {" · "}
+            {lastStats.saved} baru, {lastStats.updated} diupdate,{" "}
+            {lastStats.scraper_duplicate ?? 0} duplikat
+            {lastStats.scraper_skipped_closed > 0 && `, ${lastStats.scraper_skipped_closed} dilewati (tutup)`}
+            {" · "}
+            total {lastStats.total_scanned ?? lastStats.total_from_scraper} dipindai
+            {lastStats.failed > 0 && (
+              <span className="text-danger">{`, ${lastStats.failed} gagal disimpan`}</span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {!running && !lastStats && status?.last_error && (
+        <p className="text-sm text-danger">Scrape terakhir gagal: {status.last_error}</p>
       )}
     </Card>
   );
