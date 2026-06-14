@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import PdfImportFlow from "@/components/kbli/PdfImportFlow";
 
-export const metadata = { title: "KBLI — Catalyst" };
+export const metadata = { title: "KBLI — Project Maker by Catalyst" };
 
 async function getKbli() {
   try {

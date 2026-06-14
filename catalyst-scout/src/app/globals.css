@@ -38,6 +38,21 @@
   --stage-kalah: #ef4444;
   --stage-batal: #71717a;
 
+  /* Project pipeline stage colors (Approval -> Closed) */
+  --stage-project-approval: #64748b;
+  --stage-project-kickoff: #3b82f6;
+  --stage-project-posoissued: #8b5cf6;
+  --stage-project-pelaksanaan: #f59e0b;
+  --stage-project-invoicing: #ec4899;
+  --stage-project-closed: #22c55e;
+
+  /* Non-tender lead pipeline stage colors */
+  --stage-lead-lead: #64748b;
+  --stage-lead-proposal: #3b82f6;
+  --stage-lead-quotation: #f59e0b;
+  --stage-lead-converted: #22c55e;
+  --stage-lead-cancelled: #71717a;
+
   /* Semantic */
   --danger: #ef4444;
   --danger-hover: #dc2626;
@@ -77,6 +92,19 @@
   --color-stage-menang: var(--stage-menang);
   --color-stage-kalah: var(--stage-kalah);
   --color-stage-batal: var(--stage-batal);
+
+  --color-stage-project-approval: var(--stage-project-approval);
+  --color-stage-project-kickoff: var(--stage-project-kickoff);
+  --color-stage-project-posoissued: var(--stage-project-posoissued);
+  --color-stage-project-pelaksanaan: var(--stage-project-pelaksanaan);
+  --color-stage-project-invoicing: var(--stage-project-invoicing);
+  --color-stage-project-closed: var(--stage-project-closed);
+
+  --color-stage-lead-lead: var(--stage-lead-lead);
+  --color-stage-lead-proposal: var(--stage-lead-proposal);
+  --color-stage-lead-quotation: var(--stage-lead-quotation);
+  --color-stage-lead-converted: var(--stage-lead-converted);
+  --color-stage-lead-cancelled: var(--stage-lead-cancelled);
 
   --color-danger: var(--danger);
   --color-danger-hover: var(--danger-hover);

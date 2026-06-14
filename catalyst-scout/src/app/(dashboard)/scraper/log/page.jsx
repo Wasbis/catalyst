@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-export const metadata = { title: "Scraper Log — Catalyst" };
+export const metadata = { title: "Scraper Log — Project Maker by Catalyst" };
 
 async function getStats() {
   try {

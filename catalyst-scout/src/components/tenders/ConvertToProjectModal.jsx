@@ -1,62 +1,81 @@
 "use client";
 
 import { useState } from "react";
-import Card from "@/components/ui/Card";
-import Button from "@/components/ui/Button";
-import Modal from "@/components/ui/Modal";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createProjectFromTender } from "@/actions/projectActions";
+import { useToast } from "@/components/ui/ToastProvider";
 
-export default function ConvertToProjectModal({ tenderId, tenderTitle }) {
+export default function ConvertToProjectModal({ tender }) {
+  const router = useRouter();
+  const { addToast } = useToast();
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  if (tender.convertedToProject && tender.projectId) {
+    return (
+      <div className="panel action-panel" style={{ borderColor: "var(--stage-menang)" }}>
+        <div className="panel-head"><h3>Proyek</h3></div>
+        <p style={{ fontSize: 12.5, color: "var(--foreground-muted)", marginBottom: 12 }}>
+          Tender ini sudah dikonversi menjadi Proyek.
+        </p>
+        <Link href={`/projects/${tender.projectId}`} className="btn btn-secondary btn-md full">
+          Lihat Proyek
+        </Link>
+      </div>
+    );
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    setPending(true);
+    const res = await createProjectFromTender(tender.id, fd);
+    setPending(false);
+    if (res.success) {
+      addToast("Tender dikonversi ke Proyek", "success");
+      router.push(`/projects/${res.data.id}`);
+    } else {
+      addToast(res.error ?? "Gagal mengonversi tender", "error");
+    }
+  }
 
   return (
-    <>
-      <Card className="border-stage-menang/30 bg-stage-menang/5">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-lg">🏆</span>
-          <p className="text-xs font-semibold text-stage-menang uppercase tracking-wide">
-            Tender Menang
-          </p>
-        </div>
-        <p className="text-xs text-foreground-muted mb-3 leading-relaxed">
-          Tender ini berstatus <strong>Menang</strong>. Konversikan ke Proyek untuk memulai tahap pelaksanaan.
-        </p>
-        <Button
-          variant="primary"
-          size="sm"
-          className="w-full"
-          onClick={() => setOpen(true)}
-        >
+    <div className="panel action-panel">
+      <div className="panel-head"><h3>🏆 Tender Menang</h3></div>
+      <p style={{ fontSize: 12.5, color: "var(--foreground-muted)", marginBottom: 12 }}>
+        Tender ini berstatus <strong>Menang</strong>. Konversikan ke Proyek untuk memulai tahap pelaksanaan.
+      </p>
+      {!open ? (
+        <button className="btn btn-primary btn-md full" onClick={() => setOpen(true)}>
           Konversi ke Proyek
-        </Button>
-      </Card>
-
-      <Modal
-        isOpen={open}
-        onClose={() => setOpen(false)}
-        title="Konversi ke Proyek"
-        size="sm"
-      >
-        <div className="space-y-3">
-          <div className="rounded-lg bg-surface-hover px-4 py-3 text-xs text-foreground-muted leading-relaxed">
-            <p className="font-medium text-foreground mb-1">{tenderTitle}</p>
-            <p>
-              Fitur <strong>Konversi ke Proyek</strong> akan tersedia ketika modul{" "}
-              <strong>App 2 — Internal Workspace</strong> sudah siap (RF-T-011).
-            </p>
-            <p className="mt-2 text-foreground-subtle">
-              Saat ini catat tender ini secara manual ke sistem proyek yang ada.
-            </p>
+        </button>
+      ) : (
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="field">
+            <label className="field-label">Nama Proyek</label>
+            <input name="name" defaultValue={tender.title} className="input" />
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="w-full"
-            onClick={() => setOpen(false)}
-          >
-            Tutup
-          </Button>
-        </div>
-      </Modal>
-    </>
+          <div className="field">
+            <label className="field-label">Client</label>
+            <input name="client" defaultValue={tender.agency ?? ""} className="input" />
+          </div>
+          <div className="field">
+            <label className="field-label">No. PO/SO</label>
+            <input name="poSoNumber" className="input" />
+          </div>
+          <div className="field">
+            <label className="field-label">Tanggal PO/SO</label>
+            <input name="poSoDate" type="date" className="input" />
+          </div>
+          <div className="modal-foot" style={{ borderTop: "none", paddingTop: 0 }}>
+            <button type="button" className="btn btn-secondary btn-md" onClick={() => setOpen(false)}>Batal</button>
+            <button type="submit" disabled={pending} className="btn btn-primary btn-md">
+              {pending ? "Mengonversi…" : "Konversi"}
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

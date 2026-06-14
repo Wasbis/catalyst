@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import ProposalWizard from "@/components/proposals/ProposalWizard";
 
 export const metadata = {
-  title: "Generate Proposal | Catalyst",
+  title: "Generate Proposal | Project Maker by Catalyst",
 };
 
 export default async function ProposalPage({ params }) {

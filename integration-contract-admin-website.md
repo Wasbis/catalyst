@@ -20,12 +20,12 @@
 Dokumen ini mengatur:
 - **Area 6.1 — Recruitment**: data pelamar (vacancy & scholarship) yang sudah
   `status: "accepted"` → jadi `Employee` di HR module Catalyst (Area 2).
-- **Area 6.2 — Work-Experience Showcase**: `WorkExperienceRecord` (`isShowcased: true`)
+- **Area 6.2 — Project Portfolio Showcase**: Data `Project` (`isShowcased: true`)
   di Catalyst → ditampilkan sebagai portfolio di website Cliste (Admin Website).
 
 Dokumen ini **tidak** mengatur:
 - Struktur internal Admin Website (vacancy/scholarship management, dll).
-- Struktur `Employee`/`EmployeeDocument`/`WorkExperienceRecord` di Catalyst — itu
+- Struktur `Employee`/`EmployeeDocument`/`Project` di Catalyst — itu
   internal Catalyst (lihat `project-maker-roadmap.md` Area 2 & 3).
 - Auth user-facing / SSO.
 
@@ -95,29 +95,28 @@ Authorization: Bearer {ADMIN_WEBSITE_API_TOKEN}
 
 ---
 
-## 3. Area 6.2 — Work-Experience Showcase (Catalyst → Admin Website)
+## 3. Area 6.2 — Project Portfolio Showcase (Catalyst → Admin Website)
 
 ### 3.1 Entity yang dipertukarkan
 
-`WorkExperienceRecord` (Catalyst, Area 3) dengan `isShowcased: true`:
+`Project` (Catalyst, Area 1) dengan `isShowcased: true`:
 
-| Field        | Tipe    | Keterangan                          |
-|--------------|---------|----------------------------------------|
-| projectName  | string  | -                                        |
-| client       | string  | -                                        |
-| category     | string? | Jenis pekerjaan                         |
-| year         | int?    | -                                        |
-| notes        | string? | -                                        |
+| Field        | Tipe    | Keterangan                                       |
+|--------------|---------|---------------------------------------------------|
+| name         | string  | Nama project                                      |
+| client       | string  | Nama klien                                        |
+| year         | int     | Tahun (diekstrak dari poSoDate / endDate CTR)     |
+| description  | string  | Rangkuman projectnya ngapain aja                  |
 
-> `contractFileUrl`/`bastFileUrl` **tidak** termasuk — dokumen internal, bukan untuk
+> Dokumen internal (seperti BAST/Kontrak) **tidak** termasuk — hanya data ringkas untuk
 > ditampilkan publik.
 
 ### 3.2 Endpoint & Auth — *to be confirmed*
 
 Belum diputuskan arah call:
-- **Opsi A (pull)**: Admin Website memanggil `GET {CATALYST_URL}/api/integrations/work-experience-showcase` (auth via service token, analog §2.4) setiap kali render halaman portfolio.
+- **Opsi A (pull)**: Admin Website memanggil `GET {CATALYST_URL}/api/integrations/portfolio-showcase` (auth via service token, analog §2.4) setiap kali render halaman portfolio.
 - **Opsi B (push)**: Catalyst memanggil endpoint Admin Website setiap kali
-  `WorkExperienceRecord.isShowcased` berubah (create/update/toggle).
+  `Project.isShowcased` berubah (create/update/toggle).
 
 Opsi A lebih sederhana dari sisi Catalyst (read-only endpoint, tidak perlu tahu kapan
 harus push), tapi keputusan akhir tetap tergantung preferensi tim Admin Website.
@@ -141,6 +140,6 @@ production — sama seperti `integration-contract-project-app.md`.
       di `Employee` (kolom baru/`Json?`), atau cukup fetch on-demand via
       `originApplicantId` kapan dibutuhkan?
 - [ ] Area 6.2: arah call (Opsi A pull vs Opsi B push) — lihat §3.2.
-- [ ] Area 6.2: endpoint/auth `{CATALYST_URL}/api/integrations/work-experience-showcase`
+- [ ] Area 6.2: endpoint/auth `{CATALYST_URL}/api/integrations/portfolio-showcase`
       (kalau Opsi A) — service token analog `{SERVICE_TOKEN}` di
       `integration-contract-project-app.md`?

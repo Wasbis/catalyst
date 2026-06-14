@@ -134,6 +134,9 @@ model Project {
   poSoNumber      String?  @map("po_so_number")
   poSoDate        DateTime? @map("po_so_date") @db.Date
 
+  description     String?  @db.Text          // Rangkuman project untuk keperluan internal & showcase portfolio
+  isShowcased     Boolean  @default(false) @map("is_showcased")
+
   externalProjectId  String? @map("external_project_id")  // ID di Project App tim lain
   externalProjectUrl String? @map("external_project_url")
 
@@ -218,7 +221,7 @@ Catatan desain:
   ditandai `dataCompleteness: "full"` dan dapat tracking+checklist penuh.
 - Tujuan backfill fase lama bukan operational tracking (sudah closed), tapi continuity
   reporting ("project ini total berjalan dari 2023") — sekaligus jadi kandidat referensi di
-  **Work-Experience Library (Area 3)**.
+  **Document Management Hub (Area 3)**, sbg `DocumentRecord` dengan `entityType: "Project"`.
 - `ProjectChecklistItem.phaseId` nullable: `null` = checklist level project (dokumen sekali
   jalan, mis. kontrak induk), terisi = checklist per-fase (laporan/invoice/BAST yang
   recurring per CTR). Pertimbangkan **checklist template per kategori project** supaya tiap
@@ -307,61 +310,98 @@ model EmployeeDocument {
 
 ---
 
-### Area 3 — Work-Experience Library (Kontrak & BAST)
+### Area 3 — Document Management Hub (Repository & Referensi Dokumen) _(redesain 2026-06-14)_
 
-Tujuan: repository searchable untuk dokumen kontrak & BAST historis, dipakai sebagai
-referensi lampiran "pengalaman kerja sejenis" saat menyusun dokumen kualifikasi tender baru.
+> **Keputusan 2026-06-14**: rencana "Work-Experience Library" (`WorkExperienceRecord`,
+> CRUD kontrak/BAST saja) digabung & diperluas jadi modul **Document Management Hub**
+> generik — model tunggal `DocumentRecord` dipakai lintas modul (tender, project, phase,
+> lead, dst), dengan kategori dinamis (`DocumentCategory`, dikelola admin). Latar
+> belakang: feedback user bahwa (a) halaman tender detail belum punya tempat kelola
+> dokumen kerja tim (cuma lampiran hasil scraping yang read-only), (b) butuh satu hub
+> pencarian dokumen lintas project untuk referensi lampiran kualifikasi tender baru, dan
+> (c) kategori dokumen harus bisa diubah sesuai kebutuhan management, bukan hardcoded
+> enum.
 
 **Schema sketch:**
 ```prisma
-model WorkExperienceRecord {
-  id           Int      @id @default(autoincrement())
-  projectName  String   @map("project_name")
-  client       String
-  category     String?  @db.VarChar(50)   // jenis pekerjaan, utk filter
-  year         Int?
-  contractFileUrl String? @map("contract_file_url")
-  bastFileUrl     String? @map("bast_file_url")
-  notes        String?
+model DocumentCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(50)  // slug, mis. "kontrak", "bast", "surat_kerja"
+  label     String                            // label tampilan, mis. "Kontrak", "BAST"
+  group     String?  @db.VarChar(30)          // "teknis" | "komersial" | "legal" | "hr" — grouping/filter kasar
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
 
-  // Showcase di website Cliste (admin website) — lihat Area 6.2
-  isShowcased  Boolean  @default(false) @map("is_showcased")
+  documents DocumentRecord[]
+  @@map("document_categories")
+}
 
+model DocumentRecord {
+  id          Int      @id @default(autoincrement())
+  title       String
+  fileUrl     String   @map("file_url")
+
+  categoryId  Int?     @map("category_id")
+  category    DocumentCategory? @relation(fields: [categoryId], references: [id])
+
+  // sumber dokumen — null = standalone (upload manual ke hub, tanpa entity asal)
+  entityType  String?  @map("entity_type") @db.VarChar(30)
+    // "TenderResult" | "Project" | "ProjectPhase" | "ProjectChecklistItem" | "ProjectLead" | null
+  entityId    String?  @map("entity_id")
+
+  client      String?  // nama client terkait, utk filter "referensi project client X"
+  tags        String?  // freeform, comma-separated, utk search
+
+  // boleh dipakai sbg lampiran kualifikasi tender lain (internal, via Reference Picker)
+  isReference Boolean  @default(false) @map("is_reference")
+
+  uploadedById String? @map("uploaded_by_id")
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id])
   createdAt    DateTime @default(now()) @map("created_at")
 
-  projects     ProjectWorkExperience[]
+  @@index([entityType, entityId])
+  @@index([categoryId])
+  @@map("document_records")
 }
 ```
 
-**Relasi many-to-many ke `Project`** _(diputuskan 2026-06-13 — eksplisit, bukan manual
-notes)_:
-```prisma
-model ProjectWorkExperience {
-  id                 Int @id @default(autoincrement())
-  projectId          Int @map("project_id")
-  project            Project @relation(fields: [projectId], references: [id])
-  workExperienceId   Int @map("work_experience_id")
-  workExperience     WorkExperienceRecord @relation(fields: [workExperienceId], references: [id])
-
-  @@unique([projectId, workExperienceId])
-  @@map("project_work_experiences")
-}
-```
-Alasan eksplisit (bukan manual notes): `WorkExperienceRecord` juga jadi **showcase
-portfolio di website Cliste** (di-manage dari admin website, lihat Area 6.2) — perlu
-relasi terstruktur supaya satu record bisa dipakai konsisten sebagai (a) lampiran
-kualifikasi tender, (b) referensi `Project` terkait, dan (c) item portfolio publik.
+**Catatan desain:**
+- **1 file = 1 `DocumentRecord`** — beda dari `WorkExperienceRecord` lama yang 1 record
+  menyimpan 2 file (kontrak + BAST). Sekarang kontrak & BAST jadi 2 `DocumentRecord`
+  terpisah, sama-sama `entityType: "Project"` + `entityId: <project.id>`.
+- **Tidak perlu tabel relasi many-to-many (`ProjectWorkExperience`) lagi** — historical
+  project (termasuk CTR lama `dataCompleteness: "summary"`, Area 1.1) sudah punya row
+  `Project` sendiri, jadi `entityType`/`entityId` langsung cukup untuk "dokumen ini milik
+  project mana". Kalau nanti ada kebutuhan track "tender X memakai dokumen Y sbg
+  referensi" secara eksplisit, bisa tambah join table kecil belakangan — tidak blocking.
+- **`isReference`** — boleh dipakai tim sbg lampiran kualifikasi tender baru (internal,
+  lewat Reference Picker). Beda dari `Project.isShowcased` (Area 1/6.2) yang khusus untuk
+  portfolio publik website Cliste — dua flag independen, jangan dicampur.
+- **`DocumentCategory` dinamis** — dikelola di `/settings/document-categories` (poin 5
+  feedback 2026-06-14), bukan enum hardcode. `group` opsional untuk grouping kasar
+  (teknis/komersial/legal/hr) dipakai sbg filter cepat.
+- **`ProjectChecklistItem.fileUrl`** (existing, single string) dipertahankan apa adanya
+  untuk MVP. Migrasi opsional ke `DocumentRecord` (`entityType: "ProjectChecklistItem"`)
+  bisa menyusul belakangan — tidak blocking.
 
 **UI/halaman:**
-- `/work-experience` — list + filter (by client, by category, by tahun) + search; toggle
-  `isShowcased` per record (kontrol mana yang muncul di website Cliste).
-- Form tambah record (upload kontrak & BAST).
-- Dari `/projects/[id]`, opsi "Pilih referensi pengalaman kerja" → linking many-to-many
-  via `ProjectWorkExperience`.
+- `/documents` — hub pusat: search & filter by kategori/group/client/tag/entityType/
+  `isReference`; tiap baris link ke entity asal (mis. `Project #42` →
+  `/projects/42`) kalau `entityType`/`entityId` terisi.
+- `/settings/document-categories` — CRUD `DocumentCategory` (poin 5).
+- **`DocumentUploadPanel`** (component, embeddable) — dipasang di `tenders/[id]` &
+  `projects/[id]`: upload + list dokumen dengan `entityType`/`entityId` = entity saat
+  ini, pilih kategori dari dropdown dinamis. Ini jawab poin 3 feedback 2026-06-14 (tim
+  butuh tempat kelola dokumen kerja di halaman tender, bukan cuma lampiran scraping
+  read-only).
+- **`DocumentReferencePicker`** (component, embeddable) — tombol "Cari Referensi
+  Dokumen" di `tenders/[id]` & `projects/[id]`, modal filter by kategori/client/tag,
+  browse `DocumentRecord` dengan `isReference: true` dari project lain. Jawab poin 4
+  feedback 2026-06-14.
 
-**Dependensi:** tidak ada — independen. Bisa jadi area dengan effort paling kecil untuk
-"quick win" karena sifatnya CRUD + search sederhana. `isShowcased` + sinkronisasi ke
-admin website (Area 6.2) bisa menyusul setelah CRUD dasar jalan — tidak blocking.
+**Dependensi:** butuh model `Project` (Fase 1) untuk `entityType: "Project"` links —
+dikerjakan **setelah** Fase 1 (beda dari rencana Work-Experience Library lama yang
+independen). Tetap relatif kecil scope-nya (CRUD + search + 2 component embeddable).
 
 ---
 
@@ -407,7 +447,7 @@ model AuditLog {
   action      String   @db.VarChar(30)  // "create" | "update" | "delete" | "status_change"
   entityType  String   @db.VarChar(30)  // "Project" | "ProjectPhase" | "ProjectChecklistItem" |
                                           // "ProjectLead" | "Employee" | "EmployeeDocument" |
-                                          // "WorkExperienceRecord" | ...
+                                          // "DocumentRecord" | "DocumentCategory" | ...
   entityId    String                    // simpan sbg string, generic utk Int/String id
 
   changesJson Json?    @map("changes_json")  // { field: { old, new } }
@@ -434,7 +474,7 @@ bisa juga ditambahkan incremental ke actions yang sudah jalan — tidak blocking
 
 ---
 
-### Area 6 — Integrasi Admin Website (Recruitment, Scholarship, & Work-Experience Showcase) _(ditambahkan 2026-06-13, detail field diisi)_
+### Area 6 — Integrasi Admin Website (Recruitment, Scholarship, & Project Portfolio Showcase) _(ditambahkan 2026-06-13, detail field diisi)_
 
 Admin website (sistem/DB terpisah dari `catalystDB`) punya 2 kebutuhan integrasi dengan
 Catalyst. Pola integrasi mengikuti `integration-contract-project-app.md` (boundary
@@ -463,18 +503,17 @@ di HR module Catalyst (Area 2).
   (String?, ID pelamar di admin website) + `source` (`"internal"` |
   `"admin_website_vacancy"` | `"admin_website_scholarship"`).
 
-#### Area 6.2 — Work-Experience Showcase (Catalyst → Admin Website) _(ditambahkan 2026-06-13)_
+#### Area 6.2 — Project Portfolio Showcase (Catalyst → Admin Website) _(ditambahkan 2026-06-13, redesain 2026-06-14)_
 
-`WorkExperienceRecord` (Area 3) dengan `isShowcased: true` jadi item portfolio di website
+`Project` (Area 1) dengan `isShowcased: true` jadi item portfolio di website
 Cliste (admin website), supaya tim Cliste gak perlu input ulang data project showcase di
 dua tempat.
 
 - **Arah data**: Catalyst → admin website (kebalikan dari Area 6.1). Catalyst expose
-  daftar `WorkExperienceRecord` yang `isShowcased: true` via API; admin website yang
-  render tampilannya.
-- **Field yang relevan untuk showcase**: `projectName`, `client`, `category`, `year`,
-  `notes` — kemungkinan **tidak** termasuk `contractFileUrl`/`bastFileUrl` (dokumen
-  internal, bukan untuk publik).
+  daftar `Project` yang `isShowcased: true` via API; admin website yang render
+  tampilannya.
+- **Field yang relevan untuk showcase**: `title`, `client`, `category.label`,
+  `name`, `client`, `poSoDate` (untuk dirender tahunnya), dan `description` (rangkuman project). **Tidak** mengirimkan lampiran dokumen internal apapun.
 
 **Open items Area 6** (lihat juga `integration-contract-admin-website.md`):
 - Endpoint & auth detail Area 6.1 (pull vs push saat status `accepted`).
@@ -529,7 +568,7 @@ model GeneratedDocument {
   documentType String   @db.VarChar(30)
 
   // generic link, bukan cuma ke TenderResult — bisa Project, ProjectChecklistItem,
-  // ProjectPhase, ProjectLead, WorkExperienceRecord, dst
+  // ProjectPhase, ProjectLead, DocumentRecord, dst
   entityType   String   @db.VarChar(30)
   entityId     String   @map("entity_id")
 
@@ -561,7 +600,7 @@ model DocumentBlock {
 
 1. **Default = data-fill, bukan AI.** Mayoritas dokumen (Surat Kerja, BAST, Invoice,
    Laporan CTR) isinya substitusi data terstruktur dari `Project`/`ProjectPhase`/
-   `Employee`/`WorkExperienceRecord` ke placeholder `.docx` (`{{CLIENT_NAME}}`,
+   `Employee`/`DocumentRecord` ke placeholder `.docx` (`{{CLIENT_NAME}}`,
    `{{PHASE_LABEL}}`, dst) — **0 token AI**. AI hanya dipanggil kalau
    `DocumentTemplate.aiSections` tidak kosong.
 2. **AI sections eksplisit per-template.** Saat upload/setup template di panel (lihat
@@ -610,7 +649,7 @@ model DocumentBlock {
 **Dependensi:** tidak blocking — backend Proposal Generator (TAHAP 6) sudah ada sebagai
 basis, jadi Fase 6 ini sebagian besar *refactor + generalisasi* + panel baru, bukan
 bangun dari nol. Realistis dikerjakan **terakhir** (sesuai permintaan user) karena
-manfaatnya paling besar setelah `ProjectChecklistItem` (Fase 1), `WorkExperienceRecord`
+manfaatnya paling besar setelah `ProjectChecklistItem` (Fase 1), `DocumentRecord`
 (Fase 2), dan `Employee` (Fase 3) — sumber data untuk data-fill — sudah ada.
 
 ---
@@ -636,13 +675,18 @@ manfaatnya paling besar setelah `ProjectChecklistItem` (Fase 1), `WorkExperience
 - **Output**: fondasi — Fase 2-5 semua nempel ke `Project`.
 - **Dependensi**: tidak ada — bisa mulai duluan.
 
-### Fase 2 — Work-Experience Library (Area 3)
+### Fase 2 — Document Management Hub (Area 3) _(redesain 2026-06-14)_
 
-- **Scope**: model `WorkExperienceRecord`; halaman `/work-experience` (list, filter by
-  client/category/tahun, search, form tambah record dengan upload kontrak & BAST).
-- **Output**: quick win — repository pengalaman kerja siap dipakai sebagai lampiran
-  kualifikasi tender baru.
-- **Dependensi**: tidak ada — independen, bisa paralel dengan Fase 1.
+- **Scope**: model `DocumentCategory` + `DocumentRecord` (+ `npx prisma db push`);
+  halaman `/documents` (hub pusat search/filter), `/settings/document-categories` (CRUD
+  kategori dinamis); component `DocumentUploadPanel` & `DocumentReferencePicker`
+  dipasang di `tenders/[id]` & `projects/[id]`.
+- **Output**: repo dokumen lintas modul + kategori dinamis, sekaligus jadi tempat kelola
+  dokumen kerja tim di halaman tender (jawab poin 3 feedback 2026-06-14) dan sumber
+  portfolio untuk Area 6.2.
+- **Dependensi**: butuh model `Project` (Fase 1) untuk `entityType: "Project"` links —
+  dikerjakan setelah Fase 1 (beda dari rencana Work-Experience Library lama yang
+  independen).
 
 ### Fase 3 — HR Module (Area 2)
 
@@ -697,7 +741,7 @@ manfaatnya paling besar setelah `ProjectChecklistItem` (Fase 1), `WorkExperience
   generik ini — frontend yang sebelumnya direncanakan khusus proposal otomatis reusable
   untuk Surat Kerja/BAST/Invoice/Kontrak/Laporan CTR.
 - **Dependensi**: tidak blocking secara teknis (basis backend sudah ada dari TAHAP 6),
-  tapi value paling besar setelah `ProjectChecklistItem` (Fase 1), `WorkExperienceRecord`
+  tapi value paling besar setelah `ProjectChecklistItem` (Fase 1), `DocumentRecord`
   (Fase 2), `Employee` (Fase 3) tersedia sebagai sumber data-fill. **Sengaja ditaruh
   sebagai fase terakhir** sesuai keputusan user 2026-06-13.
 
@@ -714,7 +758,9 @@ manfaatnya paling besar setelah `ProjectChecklistItem` (Fase 1), `WorkExperience
 - [x] ~~Many-to-many `Project` ↔ `WorkExperienceRecord`~~ — **Keputusan 2026-06-13**: ya,
       tabel relasi eksplisit (`ProjectWorkExperience`) — karena `WorkExperienceRecord`
       juga jadi showcase portfolio website Cliste (Area 6.2), butuh relasi terstruktur,
-      bukan cuma manual notes. Sudah ditambahkan ke schema sketch Area 3.
+      bukan cuma manual notes. **Superseded 2026-06-14**: Area 3 diredesain jadi
+      `DocumentRecord` polymorphic (`entityType`/`entityId` langsung ke `Project`) — tabel
+      relasi terpisah tidak diperlukan lagi, lihat Area 3.
 - [ ] `ProjectPhase.externalPhaseId` (link CTR ↔ phase/sprint di Project App) — apakah
       Project App punya konsep yang align? Tunggu API contract Fase 4, jangan blocking.
       **Keputusan 2026-06-13**: dicatat sebagai open item di Fase 4 saja (todo.md §4.0),

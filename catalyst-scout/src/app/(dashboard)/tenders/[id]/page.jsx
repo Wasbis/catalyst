@@ -6,7 +6,7 @@ import TenderDetailClient from "@/components/tenders/TenderDetailClient";
 export async function generateMetadata({ params }) {
   const { id } = await params;
   const tender = await getTenderById(id);
-  return { title: tender ? `${tender.title} — Catalyst` : "Tender tidak ditemukan" };
+  return { title: tender ? `${tender.title} — Project Maker by Catalyst` : "Tender tidak ditemukan" };
 }
 
 export default async function TenderDetailPage({ params }) {

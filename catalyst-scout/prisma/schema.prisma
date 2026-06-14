@@ -19,7 +19,6 @@ model User {
   passwordHash  String
   role          String         @default("engineer") // 'admin' | 'engineer' | 'manager'
   createdAt     DateTime       @default(now())
-  tasks         TenderTask[]
   notifications Notification[]
 }
 
@@ -34,9 +33,6 @@ model MasterKbli {
   category    String?  // Kelompok besar KBLI, opsional
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
-
-  // Relasi ke tender yang sudah dipromote
-  tenders     Tender[]
 
   @@index([isActive])
 }
@@ -134,8 +130,9 @@ model TenderResult {
   status String @db.VarChar(20)
 
   notes              String?
-  convertedToProject Boolean @map("converted_to_project") // true = sudah dikonversi ke project App 2
-  projectId          Int?    @map("project_id") // ref ke project App 2 setelah konversi
+  convertedToProject Boolean @map("converted_to_project") // true = sudah dikonversi ke Project
+  projectId          Int?    @map("project_id")
+  project            Project? @relation(fields: [projectId], references: [id])
 
   // Lampiran & metadata khusus per platform (mis. CIVD: announcement_type, golongan_usaha, dll)
   docFilesJson       String? @map("doc_files_json")
@@ -150,81 +147,125 @@ model TenderResult {
 
   proposalDrafts ProposalDraft[]
 
-  // Setelah dievaluasi, bisa dipromote ke Tender
-  promotedTender Tender?
-
   @@index([source])
   @@map("tender_results")
 }
 
-// Lead aktif yang dikelola tim — hasil promote dari TenderResult
-model Tender {
-  id                String     @id @default(uuid())
+// ==========================================================================
+// PROJECT MAKER — Pipeline pasca-menang / pasca-quotation
+// ==========================================================================
 
-  // Sumber data (bisa dari TenderResult atau input manual)
-  sourceWeb         String     // 'geodipa' | 'civd' | 'gep' | 'manual'
-  title             String     @db.Text
-  agency            String
-  budgetValue       BigInt?
-  requirementText   String     @db.Text
-  matchMethod       String?    // 'exact_regex' | 'semantic_ai'
-  aiSimilarityScore Float?
-  status            String     @default("new_lead")
-  // 'new_lead' | 'evaluating' | 'bidding' | 'won' | 'lost' | 'cancelled'
+// Project aktif — hasil konversi dari TenderResult (Menang) atau ProjectLead (Quotation)
+model Project {
+  id             Int           @id @default(autoincrement())
+  name           String
+  sourceType     String        @map("source_type") @db.VarChar(20) // "tender" | "non_tender"
 
-  urlLink           String?    @db.Text
-  docUrl            String?    @db.Text
-  deadline          DateTime?
+  tenderResults  TenderResult[]
 
-  // Link ke raw data scraper (nullable — manual entry tidak punya TenderResult)
-  tenderResultId    Int?       @unique
-  tenderResult      TenderResult? @relation(fields: [tenderResultId], references: [id])
+  client         String
+  status         String        @db.VarChar(20) // Approval | KickOff | POSOIssued | Pelaksanaan | Invoicing | Closed
+  poSoNumber     String?       @map("po_so_number")
+  poSoDate       DateTime?     @map("po_so_date") @db.Date
 
-  // Link ke KBLI
-  matchedKbliCode   String?
-  kbli              MasterKbli? @relation(fields: [matchedKbliCode], references: [kbliCode])
+  // Placeholder utk Fase 4 (integrasi Project App)
+  externalProjectId  String? @map("external_project_id")
+  externalProjectUrl String? @map("external_project_url")
 
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime?     @updatedAt @map("updated_at")
 
-  tasks             TenderTask[]
+  tasks          ProjectTask[]
+  checklistItems ProjectChecklistItem[]
+  phases         ProjectPhase[]
+  leads          ProjectLead[]
 
   @@index([status])
-  @@index([matchedKbliCode])
-  @@index([sourceWeb])
-  @@index([deadline])
+  @@index([sourceType])
 }
 
-model TenderTask {
-  id          String    @id @default(uuid())
-  taskTitle   String
-  status      String    @default("todo") // 'todo' | 'in_progress' | 'done'
-  dueDate     DateTime?
-  tenderId    String
-  tender      Tender    @relation(fields: [tenderId], references: [id], onDelete: Cascade)
-  assigneeId  String?
-  assignee    User?     @relation(fields: [assigneeId], references: [id])
-  createdAt   DateTime  @default(now())
+// Todo level admin internal (bukan task eksekusi teknis — itu di Project App)
+model ProjectTask {
+  id        Int       @id @default(autoincrement())
+  projectId Int       @map("project_id")
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@index([tenderId])
+  title     String
+  dueDate   DateTime? @map("due_date") @db.Date
+  assignee  String?
+  status    String    @default("todo") @db.VarChar(20) // todo | in_progress | done
+
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([projectId])
+}
+
+// Checklist dokumen per kategori (teknis/komersial) — diisi manual, tidak ada template otomatis
+model ProjectChecklistItem {
+  id        Int           @id @default(autoincrement())
+  projectId Int           @map("project_id")
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  phaseId   Int?          @map("phase_id") // null = checklist level project
+  phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+
+  category  String        @db.VarChar(20) // "teknis" | "komersial"
+  label     String        // "Surat Kerja", "Timesheet", "BAST", dst
+  status    String        @default("belum") @db.VarChar(20) // belum | sudah | expired
+  fileUrl   String?       @map("file_url")
+
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@index([phaseId])
+}
+
+// Siklus pencairan/reporting bertahap (CTR, dst)
+model ProjectPhase {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @map("project_id")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  label     String   // "CTR-1", "CTR-8", dst
+  sequence  Int      // urutan utk sorting
+  startDate DateTime? @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date") @db.Date
+  status    String   @default("planned") @db.VarChar(20) // active | closed | planned
+
+  disbursementAmount BigInt?  @map("disbursement_amount")
+  disbursementStatus String?  @map("disbursement_status") // belum_cair | proses | cair
+
+  // "summary" = data arsip/backfill seadanya, "full" = tracking penuh sejak awal fase
+  dataCompleteness String @default("full") @map("data_completeness")
+
+  checklistItems ProjectChecklistItem[]
+
+  @@index([projectId])
+}
+
+// Lead non-tender (Lead -> Proposal -> Quotation -> Converted/Cancelled)
+model ProjectLead {
+  id             Int      @id @default(autoincrement())
+  name           String
+  client         String
+  status         String   @default("lead") @db.VarChar(20) // lead | proposal | quotation | converted | cancelled
+  description    String?  @db.Text
+  estimatedValue BigInt?  @map("estimated_value")
+  notes          String?  @db.Text
+
+  projectId      Int?     @map("project_id") // diisi saat convert ke Project
+  project        Project? @relation(fields: [projectId], references: [id])
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime? @updatedAt @map("updated_at")
+
   @@index([status])
+  @@map("project_leads")
 }
 
 // ==========================================================================
-// AI PROPOSAL AGENT & RAG
+// AI PROPOSAL AGENT
 // ==========================================================================
-
-model KnowledgeBase {
-  id         String   @id @default(uuid())
-  fileName   String
-  fileType   String   // 'proposal_lama' | 'company_profile' | 'spesifikasi_teknis'
-  filePath   String
-
-  // pgvector — kolom ini ditambah manual setelah prisma migrate:
-  // ALTER TABLE "KnowledgeBase" ADD COLUMN embedding vector(1536);
-  // Gunakan extension: CREATE EXTENSION IF NOT EXISTS vector;
-  uploadedAt DateTime @default(now())
-}
 
 // Template .docx untuk proposal — dikelola scraper-engine (SQLAlchemy), map ke proposal_templates existing
 model ProposalTemplate {

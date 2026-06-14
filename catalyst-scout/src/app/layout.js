@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Catalyst — Cliste",
-  description: "Dashboard tender & KBLI Catalyst",
+  title: "Project Maker by Catalyst",
+  description: "Dashboard tender & proyek Project Maker by Catalyst",
 };
 
 export default function RootLayout({ children }) {

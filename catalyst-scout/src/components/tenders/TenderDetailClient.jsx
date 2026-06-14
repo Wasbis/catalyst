@@ -8,6 +8,7 @@ import { VALID_TENDER_STATUSES } from "@/lib/tenderStatus";
 import { updateTenderStatus, addTenderNote } from "@/actions/tenderActions";
 import { useToast } from "@/components/ui/ToastProvider";
 import ScoreBadge from "@/components/tenders/ScoreBadge";
+import ConvertToProjectModal from "@/components/tenders/ConvertToProjectModal";
 
 const STATUS_TONE = {
   DITEMUKAN: "slate", DITINJAU: "blue", DIKEJAR: "amber",
@@ -321,6 +322,11 @@ export default function TenderDetailClient({ tender }) {
 
       {/* ── SIDE COLUMN ── */}
       <div className="detail-side">
+        {/* Konversi ke Proyek */}
+        {(tender.status === "MENANG" || tender.convertedToProject) && (
+          <ConvertToProjectModal tender={tender} />
+        )}
+
         {/* Status & Aksi */}
         <div className="panel action-panel">
           <div className="panel-head"><h3>Status &amp; Aksi</h3></div>
@@ -606,7 +612,7 @@ function ProposalView({ tender, onBack }) {
             </div>
             <div>
               <h3>Interactive AI Proposal Generator</h3>
-              <p>Sesuaikan persyaratan user, pilih template visual, lalu Catalyst akan membuat draf proposal per-section secara otomatis.</p>
+              <p>Sesuaikan persyaratan user, pilih template visual, lalu Project Maker akan membuat draf proposal per-section secara otomatis.</p>
             </div>
           </div>
 

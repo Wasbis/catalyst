@@ -1,7 +1,7 @@
 import LoginForm from "@/components/auth/LoginForm";
 
 export const metadata = {
-  title: "Masuk — Catalyst",
+  title: "Masuk — Project Maker by Catalyst",
 };
 
 export default function LoginPage() {
@@ -14,10 +14,10 @@ export default function LoginPage() {
       <div className="login-card">
         {/* Brand */}
         <div className="login-brand">
-          <div className="brand-mark">C</div>
+          <div className="brand-mark">P</div>
           <div>
-            <div className="login-name">Catalyst</div>
-            <div className="login-sub">Tender Platform · Cliste</div>
+            <div className="login-name">Project Maker</div>
+            <div className="login-sub">by Catalyst · Cliste</div>
           </div>
         </div>
 
