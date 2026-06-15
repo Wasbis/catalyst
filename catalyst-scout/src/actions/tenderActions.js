@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { scraperFetch } from "@/lib/scraperApi";
-import { getCurrentUser } from "@/lib/auth";
 import { VALID_TENDER_STATUSES } from "@/lib/tenderStatus";
+import { toJSONSafe } from "@/lib/serialize";
 
 export async function getTenders({
   source,
@@ -42,6 +42,12 @@ export async function getTenders({
 
 export async function getTenderById(id) {
   return prisma.tenderResult.findUnique({ where: { id: Number(id) } });
+}
+
+// Versi JSON-safe untuk dipanggil langsung dari client component (mis. TenderDetailDrawer)
+export async function getTenderDetailForDrawer(id) {
+  const tender = await getTenderById(id);
+  return toJSONSafe(tender);
 }
 
 export async function getTenderStats() {
@@ -118,17 +124,14 @@ export async function updateTenderStatus(id, status) {
     };
   }
 
+  let updateData;
   try {
     // Try scraper API first (sync ke Python side)
     const result = await scraperFetch(`/api/v1/tenders/${id}/status`, {
       method: "PUT",
       body: JSON.stringify({ status }),
     });
-
-    revalidatePath("/tenders");
-    revalidatePath(`/tenders/${id}`);
-
-    return { success: true, data: result.data };
+    updateData = result.data;
   } catch {
     // Fallback: update langsung via Prisma (scraper-engine mungkin tidak running)
     try {
@@ -136,50 +139,42 @@ export async function updateTenderStatus(id, status) {
         where: { id: Number(id) },
         data: { status, updatedAt: new Date() },
       });
-
-      revalidatePath("/tenders");
-      revalidatePath(`/tenders/${id}`);
-
-      return { success: true };
     } catch (prismaErr) {
       return { success: false, error: prismaErr.message };
     }
   }
+
+  // Auto-convert ke Project saat tender MENANG (kalau belum pernah dikonversi)
+  let projectCreated = false;
+  let projectId = null;
+  if (status === "MENANG") {
+    const tender = await prisma.tenderResult.findUnique({ where: { id: Number(id) } });
+    if (tender && !tender.convertedToProject) {
+      const project = await prisma.project.create({
+        data: {
+          name: tender.title,
+          client: tender.agency || "—",
+          sourceType: "tender",
+          status: "Approval",
+        },
+      });
+      await prisma.tenderResult.update({
+        where: { id: Number(id) },
+        data: { convertedToProject: true, projectId: project.id },
+      });
+      projectCreated = true;
+      projectId = project.id;
+      revalidatePath("/projects");
+    }
+  }
+
+  revalidatePath("/tenders");
+  revalidatePath(`/tenders/${id}`);
+
+  return { success: true, data: { ...updateData, projectCreated, projectId } };
 }
 
 export async function promoteTender(id) {
   return updateTenderStatus(id, "DITINJAU");
 }
 
-export async function addTenderNote(id, note) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return { success: false, error: "Unauthorized" };
-  }
-
-  const trimmed = note?.trim();
-  if (!trimmed) {
-    return { success: false, error: "Catatan tidak boleh kosong." };
-  }
-
-  const tender = await prisma.tenderResult.findUnique({
-    where: { id: Number(id) },
-    select: { notes: true },
-  });
-
-  if (!tender) {
-    return { success: false, error: `Tender dengan id=${id} tidak ditemukan.` };
-  }
-
-  const entry = `[${new Date().toLocaleString("id-ID")}] ${user.name}: ${trimmed}`;
-  const updatedNotes = tender.notes ? `${entry}\n---\n${tender.notes}` : entry;
-
-  await prisma.tenderResult.update({
-    where: { id: Number(id) },
-    data: { notes: updatedNotes },
-  });
-
-  revalidatePath(`/tenders/${id}`);
-
-  return { success: true, data: { notes: updatedNotes } };
-}

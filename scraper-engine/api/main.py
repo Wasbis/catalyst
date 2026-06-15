@@ -17,7 +17,9 @@ from sqlalchemy.orm import Session
 
 # Services
 from api.services.ai_matcher import semantic_kbli_match
-from api.services.ai_proposal_agent import AIProposalAgent
+from api.services.ai_proposal_agent import AIProposalAgent, DEFAULT_PROPOSAL_SECTIONS
+from api.services.docx_field_mapper import apply_field_mapping, scan_template
+from api.services.field_mapper_llm import suggest_field_mapping
 from api.services.docx_generator import DocxGenerator
 from api.services.masking_services import MaskingService
 from api.services.pdf_extractor import extract_kbli_from_nib
@@ -27,9 +29,9 @@ from api.services.scraper import CatalystScraper
 from api.models.database import (
     MasterKbli,
     Notification,
-    ProposalBlock,
-    ProposalDraft,
-    ProposalTemplate,
+    DocumentBlock,
+    GeneratedDocument,
+    DocumentTemplate,
     ScrapingJob,
     TenderResult,
     get_db,
@@ -177,6 +179,47 @@ class UpdateProposalTemplateRequest(BaseModel):
     proposal_type: Optional[str] = None
     default_sections: Optional[List[str]] = None
     is_active: Optional[bool] = None
+
+
+class UpdateDocumentTemplateRequest(BaseModel):
+    name: Optional[str] = None
+    document_type: Optional[str] = None
+    ai_sections: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class FieldMappingItem(BaseModel):
+    ids: List[str]  # "<xml part>#<paragraphIndex>" per occurrence, lihat docx_field_mapper.scan_template
+    classification: str  # "static" | "data" | "ai"
+    search: Optional[str] = None  # substring yang diganti; None = full paragraph
+    jinja_tag: Optional[str] = None  # mis. "{{ client_name }}" — wajib jika classification != static
+    guideline: Optional[str] = None  # untuk classification="ai" — dipakai DocumentGeneratorAgent (Fase 4)
+
+
+class ApplyFieldMappingRequest(BaseModel):
+    mappings: List[FieldMappingItem]
+
+
+class GenerateDocumentRequest(BaseModel):
+    document_type: str
+    entity_type: str
+    entity_id: str
+    entity_data: dict  # flat field->value, sudah di-resolve caller (Project/ProjectPhase/TenderResult/dll)
+    template_id: Optional[str] = None
+    data_blocks: Optional[List[dict]] = None  # [{title, content, subsections?, order?}] section "data"/"static"
+    ai_sections: Optional[List[str]] = None  # override template.ai_sections
+    section_guidelines: Optional[dict] = None  # title -> guideline text untuk AI
+    context_text: Optional[str] = ""  # ringkasan teks untuk konteks prompt AI
+    company_name: Optional[str] = "PT Cliste Rekayasa Indonesia"
+    user_requirements: Optional[str] = None
+    use_masking: Optional[bool] = True
+    timeline_data: Optional[List[dict]] = None
+
+
+class UpdateDocumentBlockRequest(BaseModel):
+    content: Optional[str] = None
+    user_comment: Optional[str] = None
+    is_approved: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -961,7 +1004,7 @@ def generate_proposal(
 @app.get("/api/v1/proposals/templates", tags=["proposal"])
 def list_proposal_templates(db: Session = Depends(get_db)):
     """Daftar semua template .docx yang sudah diupload."""
-    templates = db.query(ProposalTemplate).order_by(ProposalTemplate.created_at.desc()).all()
+    templates = db.query(DocumentTemplate).order_by(DocumentTemplate.created_at.desc()).all()
     return {
         "status": "success",
         "data": [
@@ -1011,7 +1054,7 @@ async def upload_proposal_template(
         dest = PROPOSAL_TEMPLATES_DIR / safe_name
         dest.write_bytes(content)
 
-        template = ProposalTemplate(
+        template = DocumentTemplate(
             name=file.filename,
             file_path=str(dest),
             proposal_type=proposal_type,
@@ -1045,7 +1088,7 @@ def update_proposal_template(
     db: Session = Depends(get_db),
 ):
     """Update metadata template: name, proposal_type, default_sections, is_active."""
-    template = db.query(ProposalTemplate).filter(ProposalTemplate.id == template_id).first()
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
 
@@ -1077,11 +1120,11 @@ def update_proposal_template(
 @app.delete("/api/v1/proposals/templates/{template_id}", tags=["proposal"])
 def delete_proposal_template(template_id: str, db: Session = Depends(get_db)):
     """Hapus template proposal beserta file .docx-nya."""
-    template = db.query(ProposalTemplate).filter(ProposalTemplate.id == template_id).first()
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
 
-    drafts_count = db.query(ProposalDraft).filter(ProposalDraft.template_id == template_id).count()
+    drafts_count = db.query(GeneratedDocument).filter(GeneratedDocument.template_id == template_id).count()
     if drafts_count > 0:
         raise HTTPException(
             status_code=400,
@@ -1098,6 +1141,581 @@ def delete_proposal_template(template_id: str, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# ENDPOINTS — DOCUMENT TEMPLATES (generic, semua documentType)
+# Lihat document-templates/*.md untuk dissection struktur per documentType.
+# ---------------------------------------------------------------------------
+
+DOCUMENT_TEMPLATES_DIR = Path(__file__).parent.parent / "storage" / "document_templates"
+DOCUMENT_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _scan_docx_headings(file_path: str) -> List[dict]:
+    """Scan paragraf Heading 1/Heading 2 dari file .docx, return [{level, text}]."""
+    from docx import Document as DocxDocument
+    doc = DocxDocument(file_path)
+    headings = []
+    for p in doc.paragraphs:
+        style = p.style.name if p.style else ""
+        if style == "Heading 1":
+            headings.append({"level": 1, "text": p.text.strip()})
+        elif style == "Heading 2":
+            headings.append({"level": 2, "text": p.text.strip()})
+    return [h for h in headings if h["text"]]
+
+
+@app.get("/api/v1/documents/templates", tags=["documents"])
+def list_document_templates(document_type: Optional[str] = None, db: Session = Depends(get_db)):
+    """Daftar template .docx, optional filter by documentType."""
+    query = db.query(DocumentTemplate)
+    if document_type:
+        query = query.filter(DocumentTemplate.document_type == document_type)
+    templates = query.order_by(DocumentTemplate.created_at.desc()).all()
+    return {
+        "status": "success",
+        "data": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "document_type": t.document_type,
+                "is_active": t.is_active,
+                "ai_sections": t.ai_sections,
+                "template_mode": t.template_mode,
+                "tagged_file_path": t.tagged_file_path,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in templates
+        ],
+    }
+
+
+@app.get("/api/v1/documents/templates/{template_id}/headings", tags=["documents"])
+def get_document_template_headings(template_id: str, db: Session = Depends(get_db)):
+    """Scan ulang Heading 1/Heading 2 dari file .docx template existing."""
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+    if not os.path.exists(template.file_path):
+        raise HTTPException(status_code=404, detail="File template tidak ditemukan di storage.")
+
+    headings = _scan_docx_headings(template.file_path)
+    return {"status": "success", "data": {"headings": headings}}
+
+
+@app.get("/api/v1/documents/templates/{template_id}/field-mapper/scan", tags=["documents"])
+def scan_document_template_fields(template_id: str, db: Session = Depends(get_db)):
+    """
+    Scan candidate strings (cover/textbox, header/footer, tabel, body) dari
+    file .docx template untuk "Template Field Mapper" (Methodology 2).
+
+    Lihat document-templates/proposal-generator-strategy-v2.md §5.
+    """
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+    if not os.path.exists(template.file_path):
+        raise HTTPException(status_code=404, detail="File template tidak ditemukan di storage.")
+
+    try:
+        candidates = scan_template(template.file_path)
+    except Exception as e:
+        logger.error(f"Error scan field mapper template {template_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal scan template.")
+
+    return {
+        "status": "success",
+        "data": {
+            "candidates": candidates,
+            "existing_mapping": template.field_mapping_json,
+        },
+    }
+
+
+@app.post("/api/v1/documents/templates/{template_id}/field-mapper/suggest", tags=["documents"])
+def suggest_document_template_field_mapping(template_id: str, db: Session = Depends(get_db)):
+    """
+    Minta saran klasifikasi (static/data/ai) + Jinja tag + deskripsi per
+    candidate dari LLM (1 batch call, data sensitif di-mask dulu). Hasil ini
+    cuma SARAN — user tetap review/edit di Field Mapper UI sebelum "Apply".
+    """
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+    if not os.path.exists(template.file_path):
+        raise HTTPException(status_code=404, detail="File template tidak ditemukan di storage.")
+
+    try:
+        candidates = scan_template(template.file_path)
+        result = suggest_field_mapping(candidates, db)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error suggest field mapping template {template_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal mendapatkan saran field mapping dari LLM.")
+
+    return {"status": "success", "data": result}
+
+
+@app.post("/api/v1/documents/templates/{template_id}/field-mapper/apply", tags=["documents"])
+def apply_document_template_field_mapping(
+    template_id: str,
+    req: ApplyFieldMappingRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Tulis ulang .docx template (copy dari file asli) dengan tag Jinja2 sesuai
+    `mappings`, simpan sebagai `taggedFilePath`, dan set
+    `templateMode = "jinja_template"`.
+
+    Mapping dengan classification "static" diabaikan (teks dibiarkan apa adanya).
+    """
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+    if not os.path.exists(template.file_path):
+        raise HTTPException(status_code=404, detail="File template tidak ditemukan di storage.")
+
+    for m in req.mappings:
+        if m.classification != "static" and not m.jinja_tag:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Mapping '{m.ids[0]}' classification='{m.classification}' butuh jinja_tag.",
+            )
+
+    mappings = [m.model_dump(by_alias=False) for m in req.mappings]
+    # docx_field_mapper.apply_field_mapping expects camelCase keys "jinjaTag"
+    for m in mappings:
+        m["jinjaTag"] = m.pop("jinja_tag", None)
+
+    source_path = Path(template.file_path)
+    tagged_path = source_path.with_name(f"{source_path.stem}_tagged{source_path.suffix}")
+
+    try:
+        apply_field_mapping(template.file_path, mappings, str(tagged_path))
+    except Exception as e:
+        logger.error(f"Error apply field mapping template {template_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal apply field mapping.")
+
+    template.field_mapping_json = [m.model_dump() for m in req.mappings]
+    template.tagged_file_path = str(tagged_path)
+    template.template_mode = "jinja_template"
+    db.commit()
+    db.refresh(template)
+
+    return {
+        "status": "success",
+        "message": f"Field mapping diterapkan, tagged template disimpan di '{tagged_path.name}'.",
+        "data": {
+            "tagged_file_path": template.tagged_file_path,
+            "template_mode": template.template_mode,
+            "field_mapping_json": template.field_mapping_json,
+        },
+    }
+
+
+@app.post("/api/v1/documents/templates", tags=["documents"])
+async def upload_document_template(
+    file: UploadFile = File(...),
+    document_type: str = Form(...),
+    ai_sections: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload file .docx sebagai DocumentTemplate untuk `document_type` tertentu.
+
+    Heading 1/Heading 2 dari file di-scan dan dikembalikan ke caller supaya
+    UI `/settings/document-templates` (AiSectionsEditor) bisa menampilkan
+    checklist section untuk mengisi `ai_sections`.
+    """
+    if not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="File harus berformat .docx")
+
+    parsed_ai_sections: Optional[List[str]] = None
+    if ai_sections:
+        try:
+            parsed = json.loads(ai_sections)
+            if not isinstance(parsed, list):
+                raise ValueError("ai_sections harus berupa JSON array.")
+            parsed_ai_sections = [str(s) for s in parsed]
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Format ai_sections tidak valid: {exc}")
+
+    try:
+        content = await file.read()
+        target_dir = DOCUMENT_TEMPLATES_DIR / document_type
+        target_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = file.filename.replace(" ", "_")
+        dest = target_dir / safe_name
+        dest.write_bytes(content)
+
+        headings = _scan_docx_headings(str(dest))
+
+        template = DocumentTemplate(
+            name=file.filename,
+            file_path=str(dest),
+            document_type=document_type,
+            ai_sections=parsed_ai_sections,
+        )
+        db.add(template)
+        db.commit()
+        db.refresh(template)
+
+        return {
+            "status": "success",
+            "message": f"Template '{file.filename}' berhasil diupload.",
+            "data": {
+                "id": template.id,
+                "name": template.name,
+                "document_type": template.document_type,
+                "ai_sections": template.ai_sections,
+                "headings": headings,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error upload document template: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal menyimpan template.")
+
+
+@app.put("/api/v1/documents/templates/{template_id}", tags=["documents"])
+def update_document_template(
+    template_id: str,
+    req: UpdateDocumentTemplateRequest,
+    db: Session = Depends(get_db),
+):
+    """Update metadata template generik: name, documentType, aiSections, isActive."""
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+
+    if req.name is not None:
+        template.name = req.name
+    if req.document_type is not None:
+        template.document_type = req.document_type
+    if req.ai_sections is not None:
+        template.ai_sections = req.ai_sections
+    if req.is_active is not None:
+        template.is_active = req.is_active
+
+    db.commit()
+    db.refresh(template)
+
+    return {
+        "status": "success",
+        "data": {
+            "id": template.id,
+            "name": template.name,
+            "document_type": template.document_type,
+            "is_active": template.is_active,
+            "ai_sections": template.ai_sections,
+            "created_at": template.created_at.isoformat() if template.created_at else None,
+        },
+    }
+
+
+@app.delete("/api/v1/documents/templates/{template_id}", tags=["documents"])
+def delete_document_template(template_id: str, db: Session = Depends(get_db)):
+    """Hapus DocumentTemplate beserta file .docx-nya."""
+    template = db.query(DocumentTemplate).filter(DocumentTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template id={template_id} tidak ditemukan.")
+
+    docs_count = db.query(GeneratedDocument).filter(GeneratedDocument.template_id == template_id).count()
+    if docs_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Template masih dipakai oleh {docs_count} dokumen. Lepas referensi dokumen tersebut dulu sebelum menghapus template.",
+        )
+
+    if os.path.exists(template.file_path):
+        os.remove(template.file_path)
+
+    db.delete(template)
+    db.commit()
+
+    return {"status": "success", "message": f"Template '{template.name}' berhasil dihapus."}
+
+
+# ---------------------------------------------------------------------------
+# ENDPOINTS — GENERATED DOCUMENTS (generic, semua documentType)
+# ---------------------------------------------------------------------------
+
+def _serialize_document_block(b: DocumentBlock) -> dict:
+    return {
+        "id": b.id,
+        "title": b.title,
+        "content": b.content,
+        "subsections": json.loads(b.subsections_json) if b.subsections_json else [],
+        "order": b.order,
+        "source": b.source,
+        "is_approved": b.is_approved,
+        "user_comment": b.user_comment,
+    }
+
+
+def _serialize_generated_document(d: GeneratedDocument) -> dict:
+    return {
+        "id": d.id,
+        "document_type": d.document_type,
+        "entity_type": d.entity_type,
+        "entity_id": d.entity_id,
+        "tender_result_id": d.tender_result_id,
+        "tender_title": d.tender_title,
+        "kbli_code": d.kbli_code,
+        "kbli_description": d.kbli_description,
+        "company_name": d.company_name,
+        "template_id": d.template_id,
+        "status": d.status,
+        "generated_by": d.generated_by,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
+        "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+        "blocks": [_serialize_document_block(b) for b in sorted(d.blocks, key=lambda x: x.order)],
+    }
+
+
+@app.post("/api/v1/documents", tags=["documents"])
+def create_generated_document(req: GenerateDocumentRequest, db: Session = Depends(get_db)):
+    """
+    Generate GeneratedDocument generik untuk semua documentType.
+
+    - `data_blocks`: section "data"/"static" yang sudah di-resolve caller dari
+      Project/ProjectPhase/Employee/TenderResult (0 token AI).
+    - `ai_sections`: section yang akan digenerate AI (override DocumentTemplate.aiSections).
+    """
+    template = None
+    if req.template_id:
+        template = db.query(DocumentTemplate).filter(DocumentTemplate.id == req.template_id).first()
+        if not template:
+            raise HTTPException(status_code=404, detail=f"Template id={req.template_id} tidak ditemukan.")
+
+    ai_sections = req.ai_sections
+    if ai_sections is None and template and template.ai_sections:
+        ai_sections = template.ai_sections
+    if ai_sections is None and req.document_type == "proposal" and not req.data_blocks:
+        ai_sections = DEFAULT_PROPOSAL_SECTIONS
+    ai_sections = ai_sections or []
+
+    try:
+        masking = MaskingService.from_db(db) if req.use_masking else None
+        masked_context = masking.mask_text(req.context_text) if masking and req.context_text else (req.context_text or "")
+
+        ai_blocks: List[dict] = []
+        generated_by = "data-only"
+        if ai_sections:
+            agent = AIProposalAgent()
+            result = agent.generate_document(
+                title=req.entity_data.get("tender_title") or req.entity_data.get("project_name") or "Document",
+                context_text=masked_context,
+                section_keys=ai_sections,
+                section_guidelines=req.section_guidelines,
+                company_name=req.company_name,
+                user_requirements=req.user_requirements,
+            )
+            if result["status"] == "error":
+                raise HTTPException(status_code=500, detail=result.get("error", "Gagal generate dokumen."))
+            ai_blocks = result["blocks"]
+            generated_by = result.get("metadata", {}).get("generated_by", "unknown")
+            if masking:
+                for block in ai_blocks:
+                    block["content"] = masking.unmask_text(block["content"])
+
+        document = GeneratedDocument(
+            document_type=req.document_type,
+            entity_type=req.entity_type,
+            entity_id=req.entity_id,
+            tender_result_id=int(req.entity_id) if req.entity_type == "TenderResult" and req.entity_id.isdigit() else None,
+            tender_title=req.entity_data.get("tender_title") or req.entity_data.get("project_name") or "",
+            kbli_code=req.entity_data.get("kbli_code"),
+            kbli_description=req.entity_data.get("kbli_description"),
+            company_name=req.company_name,
+            template_id=req.template_id,
+            status="draft",
+            generated_by=generated_by,
+            timeline_data_json=json.dumps(req.timeline_data) if req.timeline_data else None,
+        )
+        db.add(document)
+        db.flush()
+
+        order = 0
+        for block_data in (req.data_blocks or []):
+            subs = block_data.get("subsections")
+            db.add(DocumentBlock(
+                draft_id=document.id,
+                title=block_data["title"],
+                content=block_data.get("content", ""),
+                subsections_json=json.dumps(subs) if subs else None,
+                order=block_data.get("order", order),
+                source="data",
+                is_approved=True,
+            ))
+            order += 1
+
+        for block_data in ai_blocks:
+            subs = block_data.get("subsections")
+            db.add(DocumentBlock(
+                draft_id=document.id,
+                title=block_data["title"],
+                content=block_data.get("content", ""),
+                subsections_json=json.dumps(subs) if subs else None,
+                order=order,
+                source="ai",
+            ))
+            order += 1
+
+        db.commit()
+        db.refresh(document)
+
+        return {
+            "status": "success",
+            "message": "Dokumen berhasil digenerate dan disimpan.",
+            "data": _serialize_generated_document(document),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error create generated document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal membuat dokumen.")
+
+
+@app.get("/api/v1/documents/{document_id}", tags=["documents"])
+def get_generated_document(document_id: str, db: Session = Depends(get_db)):
+    """Ambil GeneratedDocument beserta semua block-nya."""
+    document = db.query(GeneratedDocument).filter(GeneratedDocument.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail=f"Dokumen id={document_id} tidak ditemukan.")
+    return {"status": "success", "data": _serialize_generated_document(document)}
+
+
+@app.put("/api/v1/documents/blocks/{block_id}", tags=["documents"])
+def update_generated_document_block(
+    block_id: str,
+    req: UpdateDocumentBlockRequest,
+    db: Session = Depends(get_db),
+):
+    """Update konten/komentar/status approved sebuah block. Edit konten → source='manual'
+    (kecuali block 'data', yang tetap terhubung ke sumber data)."""
+    block = db.query(DocumentBlock).filter(DocumentBlock.id == block_id).first()
+    if not block:
+        raise HTTPException(status_code=404, detail=f"Block id={block_id} tidak ditemukan.")
+
+    if req.content is not None:
+        block.content = req.content
+        if block.source != "data":
+            block.source = "manual"
+    if req.user_comment is not None:
+        block.user_comment = req.user_comment
+    if req.is_approved is not None:
+        block.is_approved = req.is_approved
+
+    db.commit()
+    db.refresh(block)
+
+    return {"status": "success", "message": "Block berhasil diupdate.", "data": _serialize_document_block(block)}
+
+
+@app.post("/api/v1/documents/blocks/{block_id}/regenerate", tags=["documents"])
+def regenerate_generated_document_block(block_id: str, db: Session = Depends(get_db)):
+    """Regenerate ulang konten block via AI. Block 'manual'/'data' tidak bisa diregenerate."""
+    block = db.query(DocumentBlock).filter(DocumentBlock.id == block_id).first()
+    if not block:
+        raise HTTPException(status_code=404, detail=f"Block id={block_id} tidak ditemukan.")
+    if block.source == "manual":
+        raise HTTPException(status_code=400, detail="Block ini sudah diedit manual, tidak bisa diregenerate otomatis.")
+    if block.source == "data":
+        raise HTTPException(status_code=400, detail="Block 'data' diisi otomatis dari data entity, tidak perlu regenerate AI.")
+
+    document = block.draft
+    try:
+        agent = AIProposalAgent()
+        result = agent.generate_document(
+            title=document.tender_title or "Document",
+            context_text="",
+            section_keys=[block.title],
+            company_name=document.company_name or "PT Cliste Rekayasa Indonesia",
+        )
+        if result["status"] == "error" or not result["blocks"]:
+            raise HTTPException(status_code=500, detail=result.get("error", "Gagal regenerate block."))
+
+        new_block = result["blocks"][0]
+        block.content = new_block.get("content", block.content)
+        if new_block.get("subsections"):
+            block.subsections_json = json.dumps(new_block["subsections"])
+        block.source = "ai"
+        block.is_approved = False
+
+        db.commit()
+        db.refresh(block)
+
+        return {"status": "success", "message": "Block berhasil diregenerate.", "data": _serialize_document_block(block)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error regenerate block: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal regenerate block.")
+
+
+@app.get("/api/v1/documents/{document_id}/export", tags=["documents"])
+def export_generated_document(document_id: str, db: Session = Depends(get_db)):
+    """Generate file .docx dari GeneratedDocument dan kembalikan sebagai download."""
+    document = db.query(GeneratedDocument).filter(GeneratedDocument.id == document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail=f"Dokumen id={document_id} tidak ditemukan.")
+
+    blocks = [
+        {
+            "title": b.title,
+            "content": b.content,
+            "subsections": json.loads(b.subsections_json) if b.subsections_json else [],
+        }
+        for b in sorted(document.blocks, key=lambda x: x.order)
+    ]
+    metadata = {
+        "tender_title": document.tender_title,
+        "company_name": document.company_name or "",
+        "kbli_code": document.kbli_code or "",
+        "kbli_description": document.kbli_description or "",
+    }
+
+    timeline_data: Optional[List[dict]] = None
+    if document.timeline_data_json:
+        try:
+            timeline_data = json.loads(document.timeline_data_json)
+        except json.JSONDecodeError:
+            pass
+
+    template_path = None
+    if document.template_id:
+        tmpl = db.query(DocumentTemplate).filter(DocumentTemplate.id == document.template_id).first()
+        if tmpl and os.path.exists(tmpl.file_path):
+            template_path = tmpl.file_path
+
+    try:
+        generator = DocxGenerator()
+        sections_to_replace = [b["title"].upper() for b in blocks]
+        docx_bytes = generator.generate(
+            blocks, metadata,
+            template_path=template_path,
+            sections_to_replace=sections_to_replace,
+            timeline_data=timeline_data,
+        )
+    except Exception as e:
+        logger.error(f"Error export docx: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Gagal generate file .docx.")
+
+    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in (document.tender_title or "document"))[:60]
+    filename = f"{document.document_type}_{safe_title}.docx"
+
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # ENDPOINTS — PROPOSAL CRUD
 # ---------------------------------------------------------------------------
 
@@ -1107,14 +1725,14 @@ def create_proposal_draft(
     db: Session = Depends(get_db),
 ):
     """
-    Generate proposal dari TenderResult yang sudah ada di DB, lalu simpan sebagai ProposalDraft.
+    Generate proposal dari TenderResult yang sudah ada di DB, lalu simpan sebagai GeneratedDocument.
 
     Pipeline:
     1. Ambil TenderResult dari DB
     2. Mask tender_text (opsional)
     3. Generate blocks via AIProposalAgent (Claude API atau template fallback)
     4. Unmask blocks
-    5. Simpan ProposalDraft + ProposalBlock ke DB
+    5. Simpan GeneratedDocument + DocumentBlock ke DB
     """
     tender = db.query(TenderResult).filter(TenderResult.id == req.tender_result_id).first()
     if not tender:
@@ -1125,8 +1743,8 @@ def create_proposal_draft(
 
     # Hapus draft lama jika ada, biar tidak duplikat per tender
     existing = (
-        db.query(ProposalDraft)
-        .filter(ProposalDraft.tender_result_id == req.tender_result_id)
+        db.query(GeneratedDocument)
+        .filter(GeneratedDocument.tender_result_id == req.tender_result_id)
         .first()
     )
     if existing:
@@ -1152,8 +1770,8 @@ def create_proposal_draft(
         # Resolve sections: explicit request → template default → AIProposalAgent default
         sections_override = req.sections_to_replace
         if not sections_override and req.template_id:
-            tmpl_for_sections = db.query(ProposalTemplate).filter(
-                ProposalTemplate.id == req.template_id
+            tmpl_for_sections = db.query(DocumentTemplate).filter(
+                DocumentTemplate.id == req.template_id
             ).first()
             if tmpl_for_sections and tmpl_for_sections.default_sections_json:
                 try:
@@ -1181,7 +1799,10 @@ def create_proposal_draft(
             for block in blocks_raw:
                 block["content"] = masking.unmask_text(block["content"])
 
-        draft = ProposalDraft(
+        draft = GeneratedDocument(
+            document_type="proposal",
+            entity_type="TenderResult",
+            entity_id=str(tender.id),
             tender_result_id=tender.id,
             tender_title=tender.title,
             kbli_code=kbli_code,
@@ -1196,7 +1817,7 @@ def create_proposal_draft(
 
         for i, block_data in enumerate(blocks_raw):
             subs = block_data.get("subsections")
-            db.add(ProposalBlock(
+            db.add(DocumentBlock(
                 draft_id=draft.id,
                 title=block_data["title"],
                 content=block_data["content"],
@@ -1299,13 +1920,14 @@ def download_timeline_template():
 @app.get("/api/v1/proposals/{draft_id}", tags=["proposal"])
 def get_proposal_draft(draft_id: str, db: Session = Depends(get_db)):
     """Ambil draft proposal beserta semua block-nya."""
-    draft = db.query(ProposalDraft).filter(ProposalDraft.id == draft_id).first()
+    draft = db.query(GeneratedDocument).filter(GeneratedDocument.id == draft_id).first()
     if not draft:
         raise HTTPException(status_code=404, detail=f"Draft id={draft_id} tidak ditemukan.")
 
     return {
         "status": "success",
         "data": {
+            "id": draft.id,
             "draft_id": draft.id,
             "tender_result_id": draft.tender_result_id,
             "tender_title": draft.tender_title,
@@ -1340,7 +1962,7 @@ def update_proposal_block(
     db: Session = Depends(get_db),
 ):
     """Update konten, komentar, atau status approved sebuah block."""
-    block = db.query(ProposalBlock).filter(ProposalBlock.id == block_id).first()
+    block = db.query(DocumentBlock).filter(DocumentBlock.id == block_id).first()
     if not block:
         raise HTTPException(status_code=404, detail=f"Block id={block_id} tidak ditemukan.")
 
@@ -1375,7 +1997,7 @@ def export_proposal_docx(draft_id: str, db: Session = Depends(get_db)):
     Jika draft punya template_id, pakai template tersebut untuk mengisi placeholder.
     Jika tidak, generate .docx dari scratch.
     """
-    draft = db.query(ProposalDraft).filter(ProposalDraft.id == draft_id).first()
+    draft = db.query(GeneratedDocument).filter(GeneratedDocument.id == draft_id).first()
     if not draft:
         raise HTTPException(status_code=404, detail=f"Draft id={draft_id} tidak ditemukan.")
 
@@ -1403,7 +2025,7 @@ def export_proposal_docx(draft_id: str, db: Session = Depends(get_db)):
 
     template_path = None
     if draft.template_id:
-        tmpl = db.query(ProposalTemplate).filter(ProposalTemplate.id == draft.template_id).first()
+        tmpl = db.query(DocumentTemplate).filter(DocumentTemplate.id == draft.template_id).first()
         if tmpl and os.path.exists(tmpl.file_path):
             template_path = tmpl.file_path
 
@@ -1443,13 +2065,13 @@ async def import_timeline(
     Format kolom yang diharapkan (baris pertama = header, baris selanjutnya = data):
       No. | Phase / Activity | Duration | Notes
 
-    Timeline disimpan ke `ProposalDraft.timeline_data_json` dan konten block
+    Timeline disimpan ke `GeneratedDocument.timeline_data_json` dan konten block
     DURATION & COMMERCIAL diupdate dengan ringkasan fase-fase yang diimport.
     """
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="File harus berformat .xlsx")
 
-    draft = db.query(ProposalDraft).filter(ProposalDraft.id == draft_id).first()
+    draft = db.query(GeneratedDocument).filter(GeneratedDocument.id == draft_id).first()
     if not draft:
         raise HTTPException(status_code=404, detail=f"Draft id={draft_id} tidak ditemukan.")
 

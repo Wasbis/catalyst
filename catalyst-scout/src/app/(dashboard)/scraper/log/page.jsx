@@ -1,4 +1,6 @@
+import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import Badge from "@/components/ui/Badge";
 
 export const metadata = { title: "Scraper Log — Project Maker by Catalyst" };
 
@@ -44,6 +46,8 @@ const SOURCE_LABELS = { civd: "CIVD", geodipa: "GeoDipa" };
 
 const TRIGGER_LABELS = { manual: "Manual", scheduled: "Terjadwal" };
 
+const TABLE_HEADERS = ["Waktu", "Sumber", "Event", "Hasil", "Status"];
+
 export default async function ScraperLogPage() {
   const { total, today, bySource, latestJobs, jobs } = await getStats();
 
@@ -51,97 +55,115 @@ export default async function ScraperLogPage() {
   const geodipaCount = bySource.find((s) => s.source === "geodipa")?._count?.id ?? 0;
   const [latestCivd, latestGeodipa] = latestJobs;
 
+  const sources = [
+    {
+      name: "CIVD · SKK Migas",
+      count: civdCount,
+      interval: "tiap 12 jam",
+      ok: latestCivd ? latestCivd.status !== "failed" : true,
+    },
+    {
+      name: "GeoDipa",
+      count: geodipaCount,
+      interval: "tiap 24 jam",
+      ok: latestGeodipa ? latestGeodipa.status !== "failed" : true,
+    },
+  ];
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div className="flex h-full min-h-0 flex-col gap-5 overflow-hidden">
       {/* Source status cards */}
-      <div className="source-cards">
-        {[
-          {
-            name: "CIVD · SKK Migas",
-            count: civdCount,
-            interval: "tiap 12 jam",
-            ok: latestCivd ? latestCivd.status !== "failed" : true,
-          },
-          {
-            name: "GeoDipa",
-            count: geodipaCount,
-            interval: "tiap 24 jam",
-            ok: latestGeodipa ? latestGeodipa.status !== "failed" : true,
-          },
-        ].map((src) => (
-          <div key={src.name} className="source-card">
-            <div className="source-card-head">
-              <span className={src.ok ? "source-status-ok" : "source-status-err"}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  {src.ok ? <path d="M20 6L9 17l-5-5" /> : <path d="M18 6L6 18M6 6l12 12" />}
-                </svg>
+      <div className="shrink-0 grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        {sources.map((src) => (
+          <div key={src.name} className="rounded-[14px] border border-border bg-surface p-5">
+            <div className="mb-2.5 flex items-center gap-2.5">
+              <span className={src.ok ? "text-success" : "text-danger"}>
+                {src.ok ? <CheckCircle2 size={16} strokeWidth={2} /> : <XCircle size={16} strokeWidth={2} />}
               </span>
-              <span style={{ fontSize: 14, fontWeight: 800 }}>{src.name}</span>
-              <span className={`badge ${src.ok ? "badge-green" : "badge-red"}`} style={{ marginLeft: "auto" }}>{src.ok ? "Online" : "Error"}</span>
+              <span className="text-sm font-medium text-foreground">{src.name}</span>
+              <Badge variant={src.ok ? "active" : "lewati"} className="ml-auto">{src.ok ? "Online" : "Error"}</Badge>
             </div>
-            <div style={{ display: "flex", gap: 20 }}>
-              <div><div style={{ fontSize: 22, fontWeight: 800 }}>{src.count}</div><div style={{ fontSize: 12, color: "var(--foreground-muted)" }}>tender tersimpan</div></div>
-              <div><div style={{ fontSize: 14, fontWeight: 700 }}>{src.interval}</div><div style={{ fontSize: 12, color: "var(--foreground-muted)" }}>jadwal scrape</div></div>
+            <div className="flex gap-5">
+              <div>
+                <div className="text-[22px] font-medium text-foreground">{src.count}</div>
+                <div className="text-xs text-foreground-muted">tender tersimpan</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-foreground">{src.interval}</div>
+                <div className="text-xs text-foreground-muted">jadwal scrape</div>
+              </div>
             </div>
           </div>
         ))}
       </div>
 
       {/* Overall stats */}
-      <div style={{ display: "flex", gap: 14 }}>
+      <div className="shrink-0 flex gap-3.5">
         {[
           { label: "Total tender", value: total },
           { label: "Ditambahkan hari ini", value: today },
         ].map((s) => (
-          <div key={s.label} className="panel" style={{ flex: 1, padding: "16px 20px" }}>
-            <div style={{ fontSize: 24, fontWeight: 800 }}>{s.value}</div>
-            <div style={{ fontSize: 12.5, color: "var(--foreground-muted)", marginTop: 3 }}>{s.label}</div>
+          <div key={s.label} className="flex-1 rounded-[14px] border border-border bg-surface px-5 py-4">
+            <div className="text-2xl font-medium text-foreground">{s.value}</div>
+            <div className="mt-0.5 text-[12.5px] text-foreground-muted">{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Log table */}
-      <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", fontWeight: 800, fontSize: 14 }}>Log Aktivitas Scraper</div>
-        <table className="log-table" style={{ width: "100%" }}>
-          <thead>
-            <tr>
-              <th>Waktu</th><th>Sumber</th><th>Event</th><th>Hasil</th><th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.length === 0 && (
-              <tr>
-                <td colSpan={5} style={{ textAlign: "center", padding: "20px 0", color: "var(--foreground-muted)" }}>
-                  Belum ada riwayat scrape.
-                </td>
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-surface">
+        <div className="shrink-0 border-b border-border px-4.5 py-3.5 text-sm font-medium text-foreground">Log Aktivitas Scraper</div>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <table className="w-full text-left font-mono text-xs">
+            <thead>
+              <tr className="sticky top-0 z-10 border-b border-border bg-surface text-foreground-subtle">
+                {TABLE_HEADERS.map((header) => (
+                  <th key={header} className="px-4 py-2 font-medium">{header}</th>
+                ))}
               </tr>
-            )}
-            {jobs.map((job) => {
-              const event =
-                job.status === "running"
-                  ? "Sedang berjalan"
-                  : job.status === "failed"
-                  ? job.errorMessage || "Scrape gagal"
-                  : `Scrape selesai (${TRIGGER_LABELS[job.trigger] ?? job.trigger ?? "—"})`;
-              const result =
-                job.status === "running"
-                  ? "—"
-                  : `+${job.tendersNew ?? 0} baru / ${job.tendersFound ?? 0} total`;
-              return (
-                <tr key={job.id}>
-                  <td>{formatDateTime(job.startedAt)}</td>
-                  <td>{SOURCE_LABELS[job.source] ?? job.source}</td>
-                  <td>{event}</td>
-                  <td>{result}</td>
-                  <td className={job.status === "failed" ? "log-err" : job.status === "running" ? "" : "log-ok"}>
-                    {job.status === "failed" ? "✗ Error" : job.status === "running" ? "⏳ Berjalan" : "✓ OK"}
+            </thead>
+            <tbody>
+              {jobs.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-5 text-center text-foreground-muted">
+                    Belum ada riwayat scrape.
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              )}
+              {jobs.map((job) => {
+                const event =
+                  job.status === "running"
+                    ? "Sedang berjalan"
+                    : job.status === "failed"
+                    ? job.errorMessage || "Scrape gagal"
+                    : `Scrape selesai (${TRIGGER_LABELS[job.trigger] ?? job.trigger ?? "—"})`;
+                const result =
+                  job.status === "running"
+                    ? "—"
+                    : `+${job.tendersNew ?? 0} baru / ${job.tendersFound ?? 0} total`;
+                return (
+                  <tr key={job.id} className="border-b border-border last:border-0">
+                    <td className="px-4 py-2 text-foreground-muted">{formatDateTime(job.startedAt)}</td>
+                    <td className="px-4 py-2">{SOURCE_LABELS[job.source] ?? job.source}</td>
+                    <td className="px-4 py-2">{event}</td>
+                    <td className="px-4 py-2">{result}</td>
+                    <td className={`px-4 py-2 ${job.status === "failed" ? "text-danger" : job.status === "running" ? "text-foreground-muted" : "text-success"}`}>
+                      <span className="inline-flex items-center gap-1">
+                        {job.status === "failed" ? (
+                          <><XCircle size={12} strokeWidth={2} /> Error</>
+                        ) : job.status === "running" ? (
+                          <><Loader2 size={12} strokeWidth={2} className="animate-spin" /> Berjalan</>
+                        ) : (
+                          <><CheckCircle2 size={12} strokeWidth={2} /> OK</>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

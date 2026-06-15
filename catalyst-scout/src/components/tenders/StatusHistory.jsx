@@ -6,7 +6,7 @@ import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/tenders/StatusBadge";
 import { updateTenderStatus } from "@/actions/tenderActions";
 import { VALID_TENDER_STATUSES } from "@/lib/tenderStatus";
-import { STATUS_LABELS, formatDate } from "@/lib/formatters";
+import { STATUS_LABELS, formatDateTime } from "@/lib/formatters";
 import { useToast } from "@/components/ui/ToastProvider";
 
 export default function StatusHistory({ tender }) {
@@ -52,7 +52,7 @@ export default function StatusHistory({ tender }) {
 
       {tender.updatedAt && (
         <p className="mt-1.5 text-[10px] text-foreground-subtle">
-          Diperbarui {formatDate(tender.updatedAt)}
+          Diperbarui {formatDateTime(tender.updatedAt)}
         </p>
       )}
 

@@ -9,7 +9,7 @@ export async function GET(request, { params }) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const draftId = params.id;
+  const { id: draftId } = await params;
 
   try {
     const res = await fetch(`${SCRAPER_API_URL}/api/v1/proposals/${draftId}/export`, {

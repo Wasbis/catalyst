@@ -8,6 +8,8 @@ import {
   VALID_CHECKLIST_CATEGORIES,
   VALID_TASK_STATUSES,
 } from "@/lib/projectStatus";
+import { getCurrentUser } from "@/lib/auth";
+import { logActivity, diffFields } from "@/lib/auditLog";
 
 /* ────────────────────────────────────────────────────────────
  * PROJECT
@@ -54,6 +56,7 @@ export async function getProjectById(id) {
       phases: { orderBy: { sequence: "asc" }, include: { checklistItems: true } },
       tasks: { orderBy: { createdAt: "asc" } },
       tenderResults: { select: { id: true, title: true, agency: true } },
+      leads: { select: { id: true, name: true } },
     },
   });
 }
@@ -82,6 +85,15 @@ export async function createProjectFromTender(tenderResultId, formData) {
     await prisma.tenderResult.update({
       where: { id: Number(tenderResultId) },
       data: { convertedToProject: true, projectId: project.id },
+    });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "create",
+      entityType: "Project",
+      entityId: project.id,
+      metadata: { name },
     });
 
     revalidatePath("/tenders");
@@ -129,7 +141,21 @@ export async function updateProjectStatus(id, status) {
   }
 
   try {
+    const project = await prisma.project.findUnique({ where: { id: Number(id) } });
+    if (!project) return { success: false, error: "Project tidak ditemukan." };
+
     await prisma.project.update({ where: { id: Number(id) }, data: { status } });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "status_change",
+      entityType: "Project",
+      entityId: id,
+      changes: { status: { old: project.status, new: status } },
+      metadata: { name: project.name },
+    });
+
     revalidatePath("/projects");
     revalidatePath(`/projects/${id}`);
     return { success: true };
@@ -153,7 +179,7 @@ export async function createChecklistItem(projectId, formData) {
 
     const phaseId = formData.get("phaseId");
 
-    await prisma.projectChecklistItem.create({
+    const item = await prisma.projectChecklistItem.create({
       data: {
         projectId: Number(projectId),
         phaseId: phaseId ? Number(phaseId) : null,
@@ -161,6 +187,15 @@ export async function createChecklistItem(projectId, formData) {
         label,
         status: "belum",
       },
+    });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "create",
+      entityType: "ProjectChecklistItem",
+      entityId: item.id,
+      metadata: { label, projectId: Number(projectId) },
     });
 
     revalidatePath(`/projects/${projectId}`);
@@ -172,12 +207,24 @@ export async function createChecklistItem(projectId, formData) {
 
 export async function updateChecklistItem(id, { status, fileUrl } = {}) {
   try {
+    const before = await prisma.projectChecklistItem.findUnique({ where: { id: Number(id) } });
+
     const item = await prisma.projectChecklistItem.update({
       where: { id: Number(id) },
       data: {
         ...(status !== undefined && { status }),
         ...(fileUrl !== undefined && { fileUrl: fileUrl || null }),
       },
+    });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "update",
+      entityType: "ProjectChecklistItem",
+      entityId: item.id,
+      changes: diffFields(before, item, ["status", "fileUrl"]),
+      metadata: { label: item.label, projectId: item.projectId },
     });
 
     revalidatePath(`/projects/${item.projectId}`);
@@ -210,7 +257,7 @@ export async function createProjectPhase(projectId, formData) {
     const endDate = formData.get("endDate");
     const disbursementAmount = formData.get("disbursementAmount");
 
-    await prisma.projectPhase.create({
+    const phase = await prisma.projectPhase.create({
       data: {
         projectId: Number(projectId),
         label,
@@ -222,6 +269,15 @@ export async function createProjectPhase(projectId, formData) {
         disbursementStatus: formData.get("disbursementStatus")?.trim() || null,
         dataCompleteness: formData.get("dataCompleteness") || "full",
       },
+    });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "create",
+      entityType: "ProjectPhase",
+      entityId: phase.id,
+      metadata: { label, projectId: Number(projectId) },
     });
 
     revalidatePath(`/projects/${projectId}`);
@@ -240,7 +296,7 @@ export async function updateProjectPhase(id, formData) {
     const endDate = formData.get("endDate");
     const disbursementAmount = formData.get("disbursementAmount");
 
-    await prisma.projectPhase.update({
+    const updated = await prisma.projectPhase.update({
       where: { id: Number(id) },
       data: {
         label: formData.get("label")?.trim() || phase.label,
@@ -252,6 +308,16 @@ export async function updateProjectPhase(id, formData) {
         disbursementStatus: formData.get("disbursementStatus")?.trim() || phase.disbursementStatus,
         dataCompleteness: formData.get("dataCompleteness") || phase.dataCompleteness,
       },
+    });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "update",
+      entityType: "ProjectPhase",
+      entityId: updated.id,
+      changes: diffFields(phase, updated, ["label", "status", "dataCompleteness", "disbursementStatus"]),
+      metadata: { label: updated.label, projectId: updated.projectId },
     });
 
     revalidatePath(`/projects/${phase.projectId}`);
@@ -407,10 +473,42 @@ export async function updateProjectLeadStatus(id, status) {
   }
 
   try {
-    await prisma.projectLead.update({ where: { id: Number(id) }, data: { status } });
+    const before = await prisma.projectLead.findUnique({ where: { id: Number(id) } });
+    if (!before) return { success: false, error: "Lead tidak ditemukan." };
+
+    const lead = await prisma.projectLead.update({ where: { id: Number(id) }, data: { status } });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "status_change",
+      entityType: "ProjectLead",
+      entityId: lead.id,
+      changes: { status: { old: before.status, new: status } },
+      metadata: { name: lead.name },
+    });
+
+    // Auto-convert ke Project saat lead masuk Quotation (kalau belum pernah dikonversi)
+    let projectCreated = false;
+    let projectId = lead.projectId;
+    if (status === "quotation" && !lead.projectId) {
+      const project = await prisma.project.create({
+        data: {
+          name: lead.name,
+          client: lead.client,
+          sourceType: "non_tender",
+          status: "Approval",
+        },
+      });
+      await prisma.projectLead.update({ where: { id: Number(id) }, data: { projectId: project.id } });
+      projectCreated = true;
+      projectId = project.id;
+      revalidatePath("/projects");
+    }
+
     revalidatePath("/projects/leads");
     revalidatePath(`/projects/leads/${id}`);
-    return { success: true };
+    return { success: true, data: { projectCreated, projectId } };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -443,6 +541,15 @@ export async function createProjectFromLead(leadId, formData) {
     await prisma.projectLead.update({
       where: { id: Number(leadId) },
       data: { projectId: project.id, status: "converted" },
+    });
+
+    const user = await getCurrentUser();
+    await logActivity({
+      userId: user?.id,
+      action: "create",
+      entityType: "Project",
+      entityId: project.id,
+      metadata: { name },
     });
 
     revalidatePath("/projects/leads");

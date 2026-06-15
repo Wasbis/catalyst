@@ -2,11 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { getProposalTemplates } from "@/actions/aiActions";
+import Input from "@/components/ui/Input";
+import Label from "@/components/ui/Label";
+import Select from "@/components/ui/Select";
+import Button from "@/components/ui/Button";
 
 export default function ProposalSetup({ onGenerate, isGenerating }) {
   const [templates, setTemplates] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const [selectedTemplate, setSelectedTemplate] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [useMasking, setUseMasking] = useState(true);
@@ -22,7 +26,7 @@ export default function ProposalSetup({ onGenerate, isGenerating }) {
       }
       setIsLoading(false);
     }
-    load();
+    setTimeout(load, 0);
   }, []);
 
   const handleSubmit = (e) => {
@@ -35,62 +39,53 @@ export default function ProposalSetup({ onGenerate, isGenerating }) {
   };
 
   return (
-    <div className="card p-6 max-w-xl mx-auto mt-8">
-      <h2 className="text-xl font-semibold mb-4">Setup Proposal Baru</h2>
-      <p className="text-sm text-foreground-muted mb-6">
+    <div className="mx-auto mt-8 max-w-xl rounded-[14px] border border-border bg-surface p-6">
+      <h2 className="mb-4 text-xl font-medium text-foreground">Setup Proposal Baru</h2>
+      <p className="mb-6 text-sm text-foreground-muted">
         Silakan pilih template awal dan masukkan detail perusahaan Anda untuk menghasilkan draft proposal menggunakan AI.
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <label className="settings-label">Template Proposal</label>
+          <Label>Template Proposal</Label>
           {isLoading ? (
             <p className="text-sm text-foreground-muted">Memuat template...</p>
           ) : (
-            <select 
-              className="form-input w-full mt-1" 
-              value={selectedTemplate} 
-              onChange={(e) => setSelectedTemplate(e.target.value)}
-            >
+            <Select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)}>
               <option value="">Buat dari awal (Tanpa Template)</option>
-              {templates.map(tpl => (
+              {templates.map((tpl) => (
                 <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
               ))}
-            </select>
+            </Select>
           )}
         </div>
 
         <div>
-          <label className="settings-label">Nama Perusahaan Anda (Opsional)</label>
-          <input 
-            type="text" 
-            className="form-input w-full mt-1" 
+          <Label>Nama Perusahaan Anda (Opsional)</Label>
+          <Input
+            type="text"
             placeholder="Misal: PT Cliste Rekayasa Indonesia"
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
           />
         </div>
 
-        <div className="flex items-center gap-2 mt-2">
-          <input 
-            type="checkbox" 
-            id="useMasking" 
-            checked={useMasking} 
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="useMasking"
+            checked={useMasking}
             onChange={(e) => setUseMasking(e.target.checked)}
-            className="rounded border-gray-300 text-accent focus:ring-accent"
+            className="rounded border-border text-accent focus:ring-accent"
           />
-          <label htmlFor="useMasking" className="text-sm cursor-pointer select-none">
+          <label htmlFor="useMasking" className="cursor-pointer select-none text-sm text-foreground">
             Gunakan Data Masking (Anonimisasi)
           </label>
         </div>
 
-        <button 
-          type="submit" 
-          className="btn btn-primary mt-4 w-full"
-          disabled={isGenerating || isLoading}
-        >
-          {isGenerating ? "Sedang Men-generate..." : "Generate Proposal"}
-        </button>
+        <Button type="submit" loading={isGenerating} disabled={isLoading} className="mt-4 w-full justify-center">
+          Generate Proposal
+        </Button>
       </form>
     </div>
   );

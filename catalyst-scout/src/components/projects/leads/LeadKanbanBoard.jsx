@@ -1,74 +1,61 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useState } from "react";
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { VALID_LEAD_STATUSES, LEAD_STATUS_LABELS } from "@/lib/projectStatus";
 import { updateProjectLeadStatus } from "@/actions/projectActions";
-import { useToast } from "@/components/ui/ToastProvider";
+import { useKanbanBoard, buildCardMap } from "@/components/ui/kanban/useKanbanBoard";
+import SearchInput from "@/components/ui/SearchInput";
+import FilterBar from "@/components/ui/FilterBar";
 import LeadKanbanColumn from "@/components/projects/leads/LeadKanbanColumn";
 
-function buildCardMap(leads) {
-  const map = {};
-  VALID_LEAD_STATUSES.forEach((s) => { map[s] = []; });
-  leads.forEach((l) => {
-    const s = VALID_LEAD_STATUSES.includes(l.status) ? l.status : "lead";
-    map[s].push(l);
-  });
-  return map;
-}
-
-export default function LeadKanbanBoard({ initialLeads }) {
-  const { addToast } = useToast();
-  const [leads, setLeads] = useState(initialLeads);
+export default function LeadKanbanBoard({ initialLeads, totalCount }) {
   const [search, setSearch] = useState("");
-  const [dragOverCol, setDragOverCol] = useState(null);
-  const undoStack = useRef([]);
+  const {
+    items: leads,
+    dragOverCol,
+    handleStatusChange,
+    handleDragOver,
+    handleDrop,
+    handleDragLeave,
+  } = useKanbanBoard({
+    initialItems: initialLeads,
+    updateStatusAction: updateProjectLeadStatus,
+    statusLabels: LEAD_STATUS_LABELS,
+  });
 
-  const cardMap = buildCardMap(leads);
-
-  const handleStatusChange = useCallback(async (leadId, newStatus) => {
-    const id = Number(leadId);
-    const current = leads.find((l) => l.id === id);
-    if (!current || current.status === newStatus) return;
-
-    undoStack.current.push([...leads]);
-    setLeads((prev) => prev.map((l) => l.id === id ? { ...l, status: newStatus } : l));
-
-    const result = await updateProjectLeadStatus(id, newStatus);
-    if (!result.success) {
-      setLeads(undoStack.current.pop());
-      addToast(result.error ?? "Gagal mengubah status", "error");
-    } else {
-      addToast(`Status → ${LEAD_STATUS_LABELS[newStatus] ?? newStatus}`, "success");
-    }
-  }, [leads, addToast]);
-
-  function handleDragOver(e, status) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverCol(status);
-  }
-
-  function handleDrop(e, status) {
-    e.preventDefault();
-    setDragOverCol(null);
-    if (!e || !status) return;
-    const id = e.dataTransfer?.getData("text/plain");
-    if (id) handleStatusChange(id, status);
-  }
+  const cardMap = buildCardMap(leads, VALID_LEAD_STATUSES, "lead");
 
   return (
-    <div>
-      <div className="search-box" style={{ maxWidth: 320, marginBottom: 10 }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--foreground-muted)", flexShrink: 0 }}><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg>
-        <input type="search" placeholder="Cari nama lead atau client…" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
+    <div className="flex flex-1 min-h-0 flex-col">
+      <FilterBar className="mb-2.5">
+        <SearchInput
+          wrapperClassName="min-w-40 max-w-80 flex-1"
+          placeholder="Cari nama lead atau client…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <div className="ml-auto flex shrink-0 items-center gap-2.5">
+          {totalCount != null && (
+            <span className="whitespace-nowrap text-[12.5px] font-medium text-foreground-subtle">
+              {totalCount} entri
+            </span>
+          )}
+          <Link
+            href="/projects/leads/new"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-[13px] font-medium text-white no-underline transition-all duration-120 ease-out hover:opacity-92 active:scale-[0.97] active:opacity-88"
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
+            Tambah Baru
+          </Link>
+        </div>
+      </FilterBar>
 
       <div
-        className="kanban"
-        style={{ gridAutoColumns: "minmax(260px, 1fr)" }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget)) setDragOverCol(null);
-        }}
+        className="flex flex-1 min-h-0 gap-3.5 overflow-x-auto overflow-y-hidden pb-4"
+        onDragLeave={handleDragLeave}
       >
         {VALID_LEAD_STATUSES.map((status) => (
           <LeadKanbanColumn

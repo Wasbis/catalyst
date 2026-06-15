@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Trash2, FileText } from "lucide-react";
 import { createChecklistItem, updateChecklistItem, deleteChecklistItem } from "@/actions/projectActions";
+import { generateDocument } from "@/actions/generatedDocumentActions";
 import { useToast } from "@/components/ui/ToastProvider";
 import {
   VALID_CHECKLIST_CATEGORIES,
@@ -10,17 +12,26 @@ import {
   VALID_CHECKLIST_STATUSES,
   CHECKLIST_STATUS_LABELS,
 } from "@/lib/projectStatus";
+import { CHECKLIST_LABEL_TO_DOCUMENT_TYPE, GENERATED_DOCUMENT_TYPE_LABELS, buildEntityData } from "@/lib/documentTypes";
+import DocumentBlockEditor from "@/components/documents/DocumentBlockEditor";
+import Badge from "@/components/ui/Badge";
+import Input from "@/components/ui/Input";
+import Label from "@/components/ui/Label";
+import Select from "@/components/ui/Select";
+import Button from "@/components/ui/Button";
 
 const STATUS_BADGE = {
-  belum: "badge-zinc",
-  sudah: "badge-green",
-  expired: "badge-red",
+  belum: "neutral",
+  sudah: "active",
+  expired: "lewati",
 };
 
-export default function ChecklistPanel({ projectId, phaseId = null, items, title = "Checklist Dokumen" }) {
+export default function ChecklistPanel({ projectId, phaseId = null, items, title = "Checklist Dokumen", project = null, phase = null, activeDocumentTypes = [] }) {
   const router = useRouter();
   const { addToast } = useToast();
   const [pending, setPending] = useState(false);
+  const [generatingId, setGeneratingId] = useState(null);
+  const [activeDocument, setActiveDocument] = useState(null);
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -46,6 +57,24 @@ export default function ChecklistPanel({ projectId, phaseId = null, items, title
     else addToast(res.error ?? "Gagal mengubah status", "error");
   }
 
+  async function handleGenerate(item, documentType) {
+    if (!project) return;
+    setGeneratingId(item.id);
+    const res = await generateDocument({
+      documentType,
+      entityType: phase ? "ProjectPhase" : "Project",
+      entityId: phase ? phase.id : project.id,
+      entityData: buildEntityData(project, phase),
+    });
+    setGeneratingId(null);
+    if (res.success) {
+      addToast("Dokumen berhasil di-generate", "success");
+      setActiveDocument({ item, document: res.data });
+    } else {
+      addToast(res.error ?? "Gagal generate dokumen", "error");
+    }
+  }
+
   async function handleDelete(item) {
     const res = await deleteChecklistItem(item.id);
     if (res.success) {
@@ -57,60 +86,86 @@ export default function ChecklistPanel({ projectId, phaseId = null, items, title
   }
 
   return (
-    <div className="panel">
-      <div className="panel-head"><h3>{title}</h3></div>
+    <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+      <div className="mb-3.5"><h3 className="text-sm font-medium text-foreground">{title}</h3></div>
 
       {items.length === 0 ? (
-        <p style={{ fontSize: 13, color: "var(--foreground-subtle)" }}>Belum ada item checklist.</p>
+        <p className="text-[13px] text-foreground-subtle">Belum ada item checklist.</p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {items.map((item) => (
-            <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="badge badge-slate" style={{ textTransform: "uppercase", fontSize: 10 }}>
-                  {CHECKLIST_CATEGORY_LABELS[item.category] ?? item.category}
-                </span>
-                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{item.label}</span>
+        <div className="flex flex-col gap-2">
+          {items.map((item) => {
+            const documentType = CHECKLIST_LABEL_TO_DOCUMENT_TYPE[item.label.trim().toLowerCase()];
+            const templateActive = documentType && activeDocumentTypes.includes(documentType);
+            return (
+              <div key={item.id} className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2">
+                <div className="flex items-center gap-2.5">
+                  <Badge variant="neutral" className="uppercase">
+                    {CHECKLIST_CATEGORY_LABELS[item.category] ?? item.category}
+                  </Badge>
+                  <span className="text-[13.5px] font-medium text-foreground">{item.label}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {documentType && (
+                    <Button
+                      variant="neutral"
+                      size="sm"
+                      onClick={() => handleGenerate(item, documentType)}
+                      loading={generatingId === item.id}
+                      disabled={!templateActive}
+                      title={templateActive ? `Generate ${GENERATED_DOCUMENT_TYPE_LABELS[documentType]}` : `Belum ada template aktif untuk ${GENERATED_DOCUMENT_TYPE_LABELS[documentType]}`}
+                    >
+                      <FileText size={13} strokeWidth={2.2} />
+                      Generate Document
+                    </Button>
+                  )}
+                  <button onClick={() => handleCycleStatus(item)} title="Klik untuk ubah status" className="cursor-pointer">
+                    <Badge variant={STATUS_BADGE[item.status] ?? "neutral"}>
+                      {CHECKLIST_STATUS_LABELS[item.status] ?? item.status}
+                    </Badge>
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item)}
+                    className="flex h-6.5 w-6.5 items-center justify-center rounded text-foreground-muted hover:bg-surface-hover hover:text-foreground cursor-pointer"
+                    aria-label="Hapus item"
+                  >
+                    <Trash2 className="h-3.25 w-3.25" />
+                  </button>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button
-                  onClick={() => handleCycleStatus(item)}
-                  className={`badge ${STATUS_BADGE[item.status] ?? "badge-zinc"}`}
-                  style={{ border: "none", cursor: "pointer" }}
-                  title="Klik untuk ubah status"
-                >
-                  {CHECKLIST_STATUS_LABELS[item.status] ?? item.status}
-                </button>
-                <button onClick={() => handleDelete(item)} className="icon-btn" style={{ width: 26, height: 26 }} aria-label="Hapus item">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6h16z" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
-      <form onSubmit={handleAdd} style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-        <div className="field" style={{ flex: 1, minWidth: 180 }}>
-          <label className="field-label">Nama Dokumen</label>
-          <input name="label" required className="input" placeholder="Surat Kerja, BAST, dst" />
+      {activeDocument && (
+        <div className="mt-3">
+          <DocumentBlockEditor
+            document={activeDocument.document}
+            onClose={() => setActiveDocument(null)}
+            onExported={async () => {
+              await updateChecklistItem(activeDocument.item.id, { status: "sudah" });
+              router.refresh();
+            }}
+          />
         </div>
-        <div className="field" style={{ width: 160 }}>
-          <label className="field-label">Kategori</label>
-          <div className="select-wrap">
-            <select name="category" className="input select" defaultValue="teknis">
-              {VALID_CHECKLIST_CATEGORIES.map((c) => (
-                <option key={c} value={c}>{CHECKLIST_CATEGORY_LABELS[c]}</option>
-              ))}
-            </select>
-            <svg className="select-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </div>
+      )}
+
+      <form onSubmit={handleAdd} className="mt-3 flex flex-wrap items-end gap-2">
+        <div className="min-w-45 flex-1">
+          <Label htmlFor="checklist-label">Nama Dokumen</Label>
+          <Input id="checklist-label" name="label" required placeholder="Surat Kerja, BAST, dst" />
         </div>
-        <button type="submit" disabled={pending} className="btn btn-primary btn-md">
-          {pending ? "Menyimpan…" : "Tambah"}
-        </button>
+        <div className="w-40">
+          <Label htmlFor="checklist-category">Kategori</Label>
+          <Select id="checklist-category" name="category" defaultValue="teknis">
+            {VALID_CHECKLIST_CATEGORIES.map((c) => (
+              <option key={c} value={c}>{CHECKLIST_CATEGORY_LABELS[c]}</option>
+            ))}
+          </Select>
+        </div>
+        <Button type="submit" loading={pending}>
+          Tambah
+        </Button>
       </form>
     </div>
   );

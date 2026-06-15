@@ -1,74 +1,52 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useState } from "react";
 import { VALID_PROJECT_STATUSES, PROJECT_STATUS_LABELS } from "@/lib/projectStatus";
 import { updateProjectStatus } from "@/actions/projectActions";
-import { useToast } from "@/components/ui/ToastProvider";
+import { useKanbanBoard, buildCardMap } from "@/components/ui/kanban/useKanbanBoard";
+import SearchInput from "@/components/ui/SearchInput";
+import FilterBar from "@/components/ui/FilterBar";
 import ProjectKanbanColumn from "@/components/projects/ProjectKanbanColumn";
+import { ProjectViewToggle, DirectAppointmentLink, ProjectCount } from "@/components/projects/ProjectToolbarControls";
 
-function buildCardMap(projects) {
-  const map = {};
-  VALID_PROJECT_STATUSES.forEach((s) => { map[s] = []; });
-  projects.forEach((p) => {
-    const s = VALID_PROJECT_STATUSES.includes(p.status) ? p.status : "Approval";
-    map[s].push(p);
-  });
-  return map;
-}
-
-export default function ProjectKanbanBoard({ initialProjects }) {
-  const { addToast } = useToast();
-  const [projects, setProjects] = useState(initialProjects);
+export default function ProjectKanbanBoard({ initialProjects, currentView, searchParams, totalCount }) {
   const [search, setSearch] = useState("");
-  const [dragOverCol, setDragOverCol] = useState(null);
-  const undoStack = useRef([]);
+  const {
+    items: projects,
+    dragOverCol,
+    handleStatusChange,
+    handleDragOver,
+    handleDrop,
+    handleDragLeave,
+  } = useKanbanBoard({
+    initialItems: initialProjects,
+    updateStatusAction: updateProjectStatus,
+    statusLabels: PROJECT_STATUS_LABELS,
+  });
 
-  const cardMap = buildCardMap(projects);
-
-  const handleStatusChange = useCallback(async (projectId, newStatus) => {
-    const id = Number(projectId);
-    const current = projects.find((p) => p.id === id);
-    if (!current || current.status === newStatus) return;
-
-    undoStack.current.push([...projects]);
-    setProjects((prev) => prev.map((p) => p.id === id ? { ...p, status: newStatus } : p));
-
-    const result = await updateProjectStatus(id, newStatus);
-    if (!result.success) {
-      setProjects(undoStack.current.pop());
-      addToast(result.error ?? "Gagal mengubah status", "error");
-    } else {
-      addToast(`Status → ${PROJECT_STATUS_LABELS[newStatus] ?? newStatus}`, "success");
-    }
-  }, [projects, addToast]);
-
-  function handleDragOver(e, status) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverCol(status);
-  }
-
-  function handleDrop(e, status) {
-    e.preventDefault();
-    setDragOverCol(null);
-    if (!e || !status) return;
-    const id = e.dataTransfer?.getData("text/plain");
-    if (id) handleStatusChange(id, status);
-  }
+  const cardMap = buildCardMap(projects, VALID_PROJECT_STATUSES, "Approval");
 
   return (
-    <div>
-      <div className="search-box" style={{ maxWidth: 320, marginBottom: 10 }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--foreground-muted)", flexShrink: 0 }}><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.3-4.3" /></svg>
-        <input type="search" placeholder="Cari nama proyek atau client…" value={search} onChange={(e) => setSearch(e.target.value)} />
-      </div>
+    <div className="flex flex-1 min-h-0 flex-col">
+      <FilterBar className="mb-2.5">
+        <ProjectViewToggle currentView={currentView} searchParams={searchParams} />
+        <DirectAppointmentLink />
+
+        <SearchInput
+          wrapperClassName="min-w-40 max-w-80 flex-1"
+          placeholder="Cari nama proyek atau client…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <div className="ml-auto shrink-0">
+          <ProjectCount totalCount={totalCount} />
+        </div>
+      </FilterBar>
 
       <div
-        className="kanban"
-        style={{ gridAutoColumns: "minmax(260px, 1fr)" }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget)) setDragOverCol(null);
-        }}
+        className="flex flex-1 min-h-0 gap-3.5 overflow-x-auto overflow-y-hidden pb-4"
+        onDragLeave={handleDragLeave}
       >
         {VALID_PROJECT_STATUSES.map((status) => (
           <ProjectKanbanColumn

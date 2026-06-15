@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { Search, Maximize2, Minimize2, X } from "lucide-react";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
+import FilterBar from "@/components/ui/FilterBar";
+import { TenderViewToggle, TenderActions } from "@/components/tenders/TenderToolbarControls";
 
 const SCORE_OPTIONS = [
   { value: "", label: "Semua Skor" },
@@ -23,6 +30,7 @@ const SOURCE_OPTIONS = [
 ];
 
 export default function KanbanToolbar({
+  currentView, searchParams, totalCount,
   search, onSearch,
   scoreFilter, onScoreFilter,
   deadlineFilter, onDeadlineFilter,
@@ -48,128 +56,95 @@ export default function KanbanToolbar({
   }, []);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+    <div className="mb-3.5 flex flex-col gap-2.5">
       {/* Main filter row */}
-      <div className="filterbar" style={{ gap: 10 }}>
+      <FilterBar>
+        <TenderViewToggle currentView={currentView} searchParams={searchParams} />
+
         {/* Search */}
-        <div className="search-box" style={{ minWidth: 220, flex: 1, maxWidth: 340 }}>
-          <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} style={{ color: "var(--fg-muted)", width: 16, height: 16 }}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m0 0A7 7 0 1116.65 16.65z" />
-          </svg>
-          <input
+        <div className="relative min-w-40 max-w-80 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground-muted" />
+          <Input
             ref={searchRef}
             type="search"
             value={search}
             onChange={(e) => onSearch(e.target.value)}
             placeholder="Cari tender… (F)"
+            className="pl-9"
           />
         </div>
 
         {/* Score filter */}
-        <div className="select-wrap" style={{ minWidth: 140 }}>
-          <select
-            className="input select"
-            style={{ padding: "7px 32px 7px 12px", fontSize: 13 }}
-            value={scoreFilter}
-            onChange={(e) => onScoreFilter(e.target.value)}
-          >
+        <div className="w-35 shrink-0">
+          <Select value={scoreFilter} onChange={(e) => onScoreFilter(e.target.value)}>
             {SCORE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <svg className="select-chev" style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          </Select>
         </div>
 
         {/* Deadline filter */}
-        <div className="select-wrap" style={{ minWidth: 160 }}>
-          <select
-            className="input select"
-            style={{ padding: "7px 32px 7px 12px", fontSize: 13 }}
-            value={deadlineFilter}
-            onChange={(e) => onDeadlineFilter(e.target.value)}
-          >
+        <div className="w-40 shrink-0">
+          <Select value={deadlineFilter} onChange={(e) => onDeadlineFilter(e.target.value)}>
             {DEADLINE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <svg className="select-chev" style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          </Select>
         </div>
 
         {/* Source filter */}
-        <div className="select-wrap" style={{ minWidth: 150 }}>
-          <select
-            className="input select"
-            style={{ padding: "7px 32px 7px 12px", fontSize: 13 }}
-            value={sourceFilter}
-            onChange={(e) => onSourceFilter(e.target.value)}
-          >
+        <div className="w-37.5 shrink-0">
+          <Select value={sourceFilter} onChange={(e) => onSourceFilter(e.target.value)}>
             {SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <svg className="select-chev" style={{ width: 14, height: 14 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          </Select>
         </div>
 
         {/* Right controls */}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Hide empty toggle */}
-          <button
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <TenderActions totalCount={totalCount} />
+
+          {/* <Button
+            type="button"
+            variant={hideEmpty ? "ghost" : "neutral"}
+            size="sm"
             onClick={onToggleHideEmpty}
-            className="btn btn-sm btn-secondary"
-            style={hideEmpty ? { background: "var(--accent-soft)", color: "var(--accent)", borderColor: "var(--accent)" } : {}}
             title="Sembunyikan kolom kosong"
           >
             Kolom kosong
-          </button>
+          </Button>
 
-          {/* Density toggle */}
-          <button
+          <Button
+            type="button"
+            variant="neutral"
+            size="sm"
             onClick={onDensityToggle}
-            className="btn btn-sm btn-secondary"
             title="Toggle kepadatan card"
           >
             {density === "compact" ? "Compact" : "Normal"}
-          </button>
+          </Button>
 
-          {/* Fullscreen */}
           <button
+            type="button"
             onClick={onFullscreen}
-            className="icon-btn"
             title={isFullscreen ? "Keluar fullscreen" : "Fullscreen (F11)"}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground-muted transition-colors duration-120 ease-out hover:bg-surface-hover hover:text-foreground cursor-pointer active:scale-[0.97]"
           >
-            {isFullscreen ? (
-              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9L4 4m0 0h5M4 4v5m11-5l5 5M20 4h-5m5 0v5M4 20l5-5M4 20h5m11 0l-5-5M20 20h-5v0" />
-              </svg>
-            ) : (
-              <svg style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-              </svg>
-            )}
-          </button>
+            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button> */}
         </div>
-      </div>
+      </FilterBar>
 
       {/* Active filter chips */}
       {activeFilters.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <div className="flex flex-wrap gap-1.5">
           {activeFilters.map((chip) => (
-            <span
-              key={chip.key}
-              className="badge badge-violet"
-              style={{ gap: 6 }}
-            >
+            <Badge key={chip.key} variant="kejar" className="gap-1.5">
               {chip.label}
               <button
+                type="button"
                 onClick={() => onDismissFilter(chip.key)}
-                style={{ background: "none", border: 0, color: "inherit", cursor: "pointer", padding: "0 1px", display: "flex", alignItems: "center" }}
+                className="flex items-center text-inherit cursor-pointer"
                 aria-label={`Hapus filter ${chip.label}`}
               >
-                <svg style={{ width: 10, height: 10 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X size={10} />
               </button>
-            </span>
+            </Badge>
           ))}
         </div>
       )}

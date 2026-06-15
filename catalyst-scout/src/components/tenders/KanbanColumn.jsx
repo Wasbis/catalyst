@@ -1,17 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import BaseKanbanColumn from "@/components/ui/kanban/KanbanColumn";
+import KanbanCardShell from "@/components/ui/kanban/KanbanCardShell";
 import KanbanCard from "@/components/tenders/KanbanCard";
 import { STATUS_LABELS, formatCurrency } from "@/lib/formatters";
 
-const STATUS_TONE = {
-  DITEMUKAN:  "slate",
-  DITINJAU:   "blue",
-  DIKEJAR:    "amber",
-  DISERAHKAN: "violet",
-  MENANG:     "green",
-  KALAH:      "red",
-  BATAL:      "zinc",
+const STATUS_COLOR = {
+  DITEMUKAN: "text-[var(--stage-ditemukan)]",
+  DITINJAU: "text-[var(--stage-ditinjau)]",
+  DIKEJAR: "text-[var(--stage-dikejar)]",
+  DISERAHKAN: "text-[var(--stage-diserahkan)]",
+  MENANG: "text-[var(--stage-menang)]",
+  KALAH: "text-[var(--stage-kalah)]",
+  BATAL: "text-[var(--stage-batal)]",
+};
+
+const DOT_COLOR = {
+  DITEMUKAN: "bg-[var(--stage-ditemukan)]",
+  DITINJAU: "bg-[var(--stage-ditinjau)]",
+  DIKEJAR: "bg-[var(--stage-dikejar)]",
+  DISERAHKAN: "bg-[var(--stage-diserahkan)]",
+  MENANG: "bg-[var(--stage-menang)]",
+  KALAH: "bg-[var(--stage-kalah)]",
+  BATAL: "bg-[var(--stage-batal)]",
 };
 
 export default function KanbanColumn({
@@ -21,141 +32,54 @@ export default function KanbanColumn({
   isCollapsed,
   onToggleCollapse,
   onStatusChange,
+  onOpenDetail,
   searchText,
   onDragOver,
   onDrop,
   isDragOver,
 }) {
   const label = STATUS_LABELS[status] ?? status;
-  const tone = STATUS_TONE[status] ?? "slate";
+  const colorClass = STATUS_COLOR[status] ?? "text-foreground-muted";
+  const dotClass = DOT_COLOR[status] ?? "bg-foreground-muted";
   const totalValue = cards.reduce((s, t) => s + (t.budgetEstimated || 0), 0);
 
-  /* ── Collapsed view ─────────────────────────────── */
-  if (isCollapsed) {
-    return (
-      <div
-        className="card"
-        style={{
-          width: 44,
-          flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          padding: "12px 0",
-          gap: 10,
-          cursor: "pointer",
-          minHeight: 120,
-        }}
-        onClick={onToggleCollapse}
-        title={`Buka kolom ${label}`}
-      >
-        <div className={`kanban-dot`} style={{ background: `var(--${tone})` }} />
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            color: `var(--${tone})`,
-            writingMode: "vertical-rl",
-            transform: "rotate(180deg)",
-            letterSpacing: ".03em",
-          }}
-        >
-          {label}
-        </span>
-        <span className="kanban-num" style={{ writingMode: "horizontal-tb" }}>
-          {cards.length}
-        </span>
-      </div>
-    );
-  }
-
-  /* ── Expanded view ──────────────────────────────── */
   return (
-    <div
-      className={`kanban-col ${isDragOver ? "drop-over" : ""}`}
+    <BaseKanbanColumn
+      label={label}
+      cards={cards}
+      dotClassName={dotClass}
+      labelClassName={colorClass}
+      isDragOver={isDragOver}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onDragLeave={(e) => {
-        // only fire if leaving the column itself, not a child
-        if (!e.currentTarget.contains(e.relatedTarget)) onDrop(null);
-      }}
-      style={{ minWidth: 260, flex: "0 0 270px" }}
-    >
-      {/* Column header */}
-      <div
-        className={`kanban-head head-${tone}`}
-        style={{ marginBottom: 0, paddingBottom: 4 }}
-      >
-        <span className="kanban-dot" style={{ background: `var(--${tone})` }} />
-        <span className="kanban-name" style={{ flex: 1 }}>{label}</span>
-        <span className="kanban-num">{cards.length}</span>
-        {/* Collapse btn */}
-        <button
-          onClick={onToggleCollapse}
-          className="icon-btn"
-          style={{ width: 22, height: 22, marginLeft: 4 }}
-          title="Lipat kolom"
-        >
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-      </div>
+      isCollapsed={isCollapsed}
+      onToggleCollapse={onToggleCollapse}
+      headerExtra={
+        <div className="my-1.5 px-1 font-mono text-[11px] font-medium text-foreground-subtle">
+          {totalValue ? formatCurrency(totalValue) : "—"}
+        </div>
+      }
+      renderCard={(tender) => {
+        const dimmed =
+          searchText.trim() !== "" &&
+          !tender.title?.toLowerCase().includes(searchText.toLowerCase()) &&
+          !tender.agency?.toLowerCase().includes(searchText.toLowerCase());
 
-      {/* Total value */}
-      <div className="kanban-value">
-        {totalValue ? formatCurrency(totalValue) : "—"}
-      </div>
-
-      {/* Cards */}
-      <div className="kanban-cards">
-        {cards.length === 0 ? (
-          <div className="kanban-empty">Tarik kartu ke sini</div>
-        ) : (
-          cards.map((tender) => {
-            const dimmed =
-              searchText.trim() !== "" &&
-              !tender.title?.toLowerCase().includes(searchText.toLowerCase()) &&
-              !tender.agency?.toLowerCase().includes(searchText.toLowerCase());
-
-            return (
-              <DraggableCard
-                key={tender.id}
+        return (
+          <KanbanCardShell key={tender.id} id={tender.id}>
+            {({ isDragging }) => (
+              <KanbanCard
                 tender={tender}
                 density={density}
                 dimmed={dimmed}
+                isDragging={isDragging}
                 onStatusChange={onStatusChange}
+                onOpenDetail={onOpenDetail}
               />
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DraggableCard({ tender, density, dimmed, onStatusChange }) {
-  const [dragging, setDragging] = useState(false);
-
-  return (
-    <div
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", String(tender.id));
-        e.dataTransfer.effectAllowed = "move";
-        // slight delay so ghost renders first
-        setTimeout(() => setDragging(true), 0);
+            )}
+          </KanbanCardShell>
+        );
       }}
-      onDragEnd={() => setDragging(false)}
-      style={{ cursor: "grab" }}
-    >
-      <KanbanCard
-        tender={tender}
-        density={density}
-        dimmed={dimmed}
-        isDragging={dragging}
-        onStatusChange={onStatusChange}
-      />
-    </div>
+    />
   );
 }

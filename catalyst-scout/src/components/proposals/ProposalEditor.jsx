@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { Download } from "lucide-react";
 import { getProposalDraft, updateProposalBlock, importTimeline } from "@/actions/aiActions";
+import Button from "@/components/ui/Button";
 
 export default function ProposalEditor({ draftId }) {
   const [draft, setDraft] = useState(null);
@@ -25,7 +27,7 @@ export default function ProposalEditor({ draftId }) {
   }
 
   useEffect(() => {
-    if (draftId) loadDraft();
+    if (draftId) setTimeout(loadDraft, 0);
   }, [draftId]);
 
   const handleBlockChange = (blockId, newContent) => {
@@ -62,61 +64,61 @@ export default function ProposalEditor({ draftId }) {
   };
 
   if (isLoading) {
-    return <div className="text-center py-12 text-foreground-muted">Memuat editor proposal...</div>;
+    return <div className="py-12 text-center text-foreground-muted">Memuat editor proposal...</div>;
   }
 
   if (!draft) {
-    return <div className="text-center py-12 text-danger">Draft tidak ditemukan.</div>;
+    return <div className="py-12 text-center text-danger">Draft tidak ditemukan.</div>;
   }
 
   return (
-    <div className="flex flex-col gap-6 max-w-4xl mx-auto mt-4">
-      <div className="flex justify-between items-start">
+    <div className="mx-auto mt-4 flex max-w-4xl flex-col gap-6">
+      <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-2xl font-semibold">Review Proposal</h2>
-          <p className="text-sm text-foreground-muted mt-1">Status: {draft.status} | Dibuat: {new Date(draft.created_at).toLocaleString("id-ID")}</p>
+          <h2 className="text-xl font-medium text-foreground">Review Proposal</h2>
+          <p className="mt-1 text-sm text-foreground-muted">Status: {draft.status} | Dibuat: {new Date(draft.created_at).toLocaleString("id-ID")}</p>
         </div>
-        <div className="flex gap-3">
-          <a href={`/api/proposals/${draftId}/export`} download className="btn btn-primary" target="_blank" rel="noreferrer">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
-            Download DOCX
-          </a>
-        </div>
+        <a href={`/api/proposals/${draftId}/export`} download target="_blank" rel="noreferrer"
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-accent px-4 text-[13px] font-medium text-white transition-all duration-120 ease-out hover:opacity-92 active:scale-[0.97]">
+          <Download size={16} strokeWidth={2} />
+          Download DOCX
+        </a>
       </div>
 
-      <div className="card p-6 border-l-4 border-l-indigo-500 bg-indigo-50/50">
-        <h3 className="font-semibold text-indigo-900 mb-2">Import Timeline Excel</h3>
-        <p className="text-sm text-indigo-700 mb-4">
+      <div className="rounded-[14px] border border-border border-l-4 border-l-accent bg-accent-soft p-6">
+        <h3 className="mb-2 font-medium text-foreground">Import Timeline Excel</h3>
+        <p className="mb-4 text-sm text-foreground-muted">
           Anda dapat menyusun jadwal secara offline menggunakan Excel dan mengimpornya kembali. Data akan disisipkan secara otomatis saat *download* DOCX.
         </p>
         <div className="flex items-center gap-4">
-          <a href="/api/proposals/timeline-template" download className="btn btn-sm bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50">
+          <a href="/api/proposals/timeline-template" download
+            className="inline-flex h-7.5 items-center justify-center rounded-lg border border-border bg-surface px-3 text-xs font-medium text-foreground-muted transition-colors hover:text-foreground">
             Download Template Excel
           </a>
-          <form onSubmit={handleImportTimeline} className="flex gap-2 items-center">
-            <input type="file" accept=".xlsx" ref={fileInputRef} className="text-sm file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:bg-indigo-100 file:text-indigo-700 cursor-pointer" />
-            <button type="submit" disabled={isUploadingTimeline} className="btn btn-sm btn-primary">
-              {isUploadingTimeline ? "Mengimpor..." : "Import"}
-            </button>
+          <form onSubmit={handleImportTimeline} className="flex items-center gap-2">
+            <input type="file" accept=".xlsx" ref={fileInputRef} className="cursor-pointer text-sm file:mr-4 file:rounded file:border-0 file:bg-accent-soft file:px-3 file:py-1 file:text-accent" />
+            <Button type="submit" size="sm" loading={isUploadingTimeline}>
+              Import
+            </Button>
           </form>
         </div>
       </div>
 
       <div className="flex flex-col gap-4">
         {blocks.map(block => (
-          <div key={block.id} className="card p-5">
-            <div className="flex justify-between items-center mb-3">
-              <h4 className="font-semibold text-accent">{block.section_name}</h4>
-              <button 
-                onClick={() => handleSaveBlock(block.id, block.content)} 
-                className="text-xs font-semibold px-3 py-1 bg-accent/10 text-accent rounded-full hover:bg-accent hover:text-white transition-colors"
+          <div key={block.id} className="rounded-[14px] border border-border bg-surface p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="font-medium text-accent">{block.section_name}</h4>
+              <button
+                onClick={() => handleSaveBlock(block.id, block.content)}
+                className="rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent hover:text-white"
                 disabled={savingBlockId === block.id}
               >
                 {savingBlockId === block.id ? "Menyimpan..." : "Simpan Blok"}
               </button>
             </div>
-            <textarea 
-              className="form-input w-full font-mono text-sm" 
+            <textarea
+              className="w-full rounded-lg border border-border bg-surface px-3 py-2 font-mono text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/12"
               rows={Math.max(5, (block.content || "").split("\n").length)}
               value={block.content || ""}
               onChange={(e) => handleBlockChange(block.id, e.target.value)}

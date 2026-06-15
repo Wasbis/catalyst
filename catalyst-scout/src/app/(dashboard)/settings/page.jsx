@@ -2,7 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 import useSWR, { mutate } from "swr";
+import { Plus, Trash2, FileText } from "lucide-react";
 import { getProposalTemplates, uploadProposalTemplate, deleteProposalTemplate } from "@/actions/aiActions";
+import Input from "@/components/ui/Input";
+import Label from "@/components/ui/Label";
+import Select from "@/components/ui/Select";
+import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
 
 const TABS = ["Pengguna", "Scraper Config", "Templates"];
 
@@ -12,12 +18,12 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("Pengguna");
 
   // Users State
-  const { data: users, error: usersError } = useSWR("/api/users", fetcher);
+  const { data: users } = useSWR("/api/users", fetcher);
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", role: "engineer" });
 
   // Settings State
-  const { data: settingsData, error: settingsError } = useSWR("/api/settings", fetcher);
+  const { data: settingsData } = useSWR("/api/settings", fetcher);
   const [scraperSettings, setScraperSettings] = useState([]);
   const [appSettings, setAppSettings] = useState({});
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -30,8 +36,10 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (settingsData) {
-      setScraperSettings(settingsData.scraperSettings || []);
-      setAppSettings(settingsData.appSettings || {});
+      setTimeout(() => {
+        setScraperSettings(settingsData.scraperSettings || []);
+        setAppSettings(settingsData.appSettings || {});
+      }, 0);
     }
   }, [settingsData]);
 
@@ -42,8 +50,9 @@ export default function SettingsPage() {
   async function loadTemplates() {
     setIsLoadingTemplates(true);
     const res = await getProposalTemplates();
+    console.log("res data", res)
     if (res.success) {
-      setTemplates(res.data || []);
+      setTemplates(res.data.data || []);
     } else {
       console.error("Failed to load templates:", res.error);
     }
@@ -52,7 +61,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (activeTab === "Templates") {
-      loadTemplates();
+      setTimeout(loadTemplates, 0);
     }
   }, [activeTab]);
 
@@ -64,7 +73,6 @@ export default function SettingsPage() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("name", file.name);
-    // Optional: description could be added to formData if we had an input
 
     setIsUploading(true);
     const res = await uploadProposalTemplate(formData);
@@ -147,12 +155,17 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
-      {/* Tabs */}
-      <div className="settings-tabs">
+    <div className="h-full overflow-y-auto">
+      <div className="mb-5 flex gap-0.5 border-b border-border">
         {TABS.map((tab) => (
-          <button key={tab} className={`settings-tab ${activeTab === tab ? "active" : ""}`}
-            onClick={() => setActiveTab(tab)}>
+          <button
+            key={tab}
+            className={`border-b-2 px-4 py-2 font-mono text-[13.5px] transition-colors ${activeTab === tab
+                ? "border-accent text-accent"
+                : "border-transparent text-foreground-muted hover:text-foreground"
+              }`}
+            onClick={() => setActiveTab(tab)}
+          >
             {tab}
           </button>
         ))}
@@ -161,58 +174,58 @@ export default function SettingsPage() {
       {/* Pengguna */}
       {activeTab === "Pengguna" && (
         <div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            <button className="btn btn-primary btn-sm" style={{ gap: 6 }} onClick={() => setIsAddingUser(!isAddingUser)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+          <div className="mb-3 flex justify-end">
+            <Button size="sm" onClick={() => setIsAddingUser(!isAddingUser)}>
+              <Plus size={14} strokeWidth={2.2} />
               {isAddingUser ? "Cancel" : "Tambah User"}
-            </button>
+            </Button>
           </div>
 
           {isAddingUser && (
-            <div className="settings-section" style={{ marginBottom: 20 }}>
-              <form onSubmit={handleAddUser} style={{ display: "flex", gap: 12, alignItems: "end" }}>
-                <div style={{ flex: 1 }}>
-                  <label className="settings-label">Name</label>
-                  <input type="text" className="form-input w-full mt-1" required value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} />
+            <div className="mb-5 rounded-[14px] border border-border bg-surface p-5">
+              <form onSubmit={handleAddUser} className="flex items-end gap-3">
+                <div className="flex-1">
+                  <Label>Name</Label>
+                  <Input required value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <label className="settings-label">Email</label>
-                  <input type="email" className="form-input w-full mt-1" required value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} />
+                <div className="flex-1">
+                  <Label>Email</Label>
+                  <Input type="email" required value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} />
                 </div>
-                <div style={{ width: 120 }}>
-                  <label className="settings-label">Role</label>
-                  <select className="form-input w-full mt-1" value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
+                <div className="w-30">
+                  <Label>Role</Label>
+                  <Select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
                     <option value="engineer">Engineer</option>
                     <option value="manager">Manager</option>
                     <option value="admin">Admin</option>
-                  </select>
+                  </Select>
                 </div>
-                <button type="submit" className="btn btn-primary btn-sm h-9">Save</button>
+                <Button type="submit" size="sm">Save</Button>
               </form>
             </div>
           )}
 
-          <div className="settings-section">
+          <div className="rounded-[14px] border border-border bg-surface p-5">
             {!users ? (
-              <p className="text-foreground-muted text-sm py-4">Loading users...</p>
+              <p className="py-4 text-sm text-foreground-muted">Loading users...</p>
             ) : users.length === 0 ? (
-              <p className="text-foreground-muted text-sm py-4">No users found.</p>
+              <p className="py-4 text-sm text-foreground-muted">No users found.</p>
             ) : (
               users.map((user) => (
-                <div key={user.id} className="settings-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg,var(--accent),#4f46e5)", color: "#fff", fontWeight: 800, fontSize: 13, display: "grid", placeItems: "center" }}>
+                <div key={user.id} className="flex items-center justify-between border-b border-border py-2.75 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-9 w-9 place-items-center rounded-full bg-accent text-[13px] text-white">
                       {getInitials(user.name)}
                     </div>
                     <div>
-                      <div className="settings-label">{user.name}</div>
-                      <div className="settings-hint">{user.email}</div>
+                      <div className="text-[13.5px] font-medium text-foreground">{user.name}</div>
+                      <div className="mt-0.5 text-xs text-foreground-muted">{user.email}</div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <span className="badge badge-violet">{user.role}</span>
+                  <div className="flex items-center gap-3">
+                    <Badge variant="kejar">{user.role}</Badge>
                     <button onClick={() => handleDeleteUser(user.id)} className="text-danger hover:text-danger-hover" title="Delete User">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>
+                      <Trash2 size={16} strokeWidth={2} />
                     </button>
                   </div>
                 </div>
@@ -225,72 +238,62 @@ export default function SettingsPage() {
       {/* Scraper Config */}
       {activeTab === "Scraper Config" && (
         <div>
-          <div className="settings-section">
+          <div className="rounded-[14px] border border-border bg-surface p-5">
             {!settingsData ? (
-              <p className="text-foreground-muted text-sm py-4">Loading settings...</p>
+              <p className="py-4 text-sm text-foreground-muted">Loading settings...</p>
             ) : (
               <>
                 {scraperSettings.map((scraper, idx) => (
-                  <div key={scraper.id} className="settings-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div key={scraper.id} className="flex items-center justify-between border-b border-border py-2.75 last:border-0">
                     <div>
-                      <div className="settings-label">{scraper.targetName} interval (hours)</div>
-                      <div className="settings-hint">Frekuensi scraping {scraper.targetName}</div>
+                      <div className="text-[13.5px] font-medium text-foreground">{scraper.targetName} interval (hours)</div>
+                      <div className="mt-0.5 text-xs text-foreground-muted">Frekuensi scraping {scraper.targetName}</div>
                     </div>
-                    <div>
-                      <input
-                        type="number"
-                        className="form-input w-24 text-center"
-                        value={scraper.cronSchedule}
-                        onChange={(e) => {
-                          const newScrapers = [...scraperSettings];
-                          newScrapers[idx].cronSchedule = e.target.value;
-                          setScraperSettings(newScrapers);
-                        }}
-                      />
-                    </div>
+                    <Input
+                      type="number"
+                      className="w-24 text-center"
+                      value={scraper.cronSchedule}
+                      onChange={(e) => {
+                        const newScrapers = [...scraperSettings];
+                        newScrapers[idx].cronSchedule = e.target.value;
+                        setScraperSettings(newScrapers);
+                      }}
+                    />
                   </div>
                 ))}
 
-                <div className="settings-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div className="flex items-center justify-between border-b border-border py-2.75 last:border-0">
                   <div>
-                    <div className="settings-label">Match score threshold</div>
-                    <div className="settings-hint">Skor minimum untuk rekomendasi KEJAR (0-100)</div>
+                    <div className="text-[13.5px] font-medium text-foreground">Match score threshold</div>
+                    <div className="mt-0.5 text-xs text-foreground-muted">Skor minimum untuk rekomendasi KEJAR (0-100)</div>
                   </div>
-                  <div>
-                    <input
-                      type="number"
-                      className="form-input w-24 text-center"
-                      value={appSettings["MATCH_SCORE_THRESHOLD"] || ""}
-                      onChange={(e) => setAppSettings({ ...appSettings, MATCH_SCORE_THRESHOLD: e.target.value })}
-                    />
-                  </div>
+                  <Input
+                    type="number"
+                    className="w-24 text-center"
+                    value={appSettings["MATCH_SCORE_THRESHOLD"] || ""}
+                    onChange={(e) => setAppSettings({ ...appSettings, MATCH_SCORE_THRESHOLD: e.target.value })}
+                  />
                 </div>
 
-                <div className="settings-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: 0 }}>
+                <div className="flex items-center justify-between border-0 py-2.75">
                   <div>
-                    <div className="settings-label">Max tender per run</div>
-                    <div className="settings-hint">Batas maksimum tender per proses scrape</div>
+                    <div className="text-[13.5px] font-medium text-foreground">Max tender per run</div>
+                    <div className="mt-0.5 text-xs text-foreground-muted">Batas maksimum tender per proses scrape</div>
                   </div>
-                  <div>
-                    <input
-                      type="number"
-                      className="form-input w-24 text-center"
-                      value={appSettings["MAX_TENDER_PER_RUN"] || ""}
-                      onChange={(e) => setAppSettings({ ...appSettings, MAX_TENDER_PER_RUN: e.target.value })}
-                    />
-                  </div>
+                  <Input
+                    type="number"
+                    className="w-24 text-center"
+                    value={appSettings["MAX_TENDER_PER_RUN"] || ""}
+                    onChange={(e) => setAppSettings({ ...appSettings, MAX_TENDER_PER_RUN: e.target.value })}
+                  />
                 </div>
               </>
             )}
           </div>
-          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end" }}>
-            <button
-              className="btn btn-primary"
-              onClick={handleSaveSettings}
-              disabled={isSavingSettings || !settingsData}
-            >
-              {isSavingSettings ? "Saving..." : "Simpan Pengaturan"}
-            </button>
+          <div className="mt-5 flex justify-end">
+            <Button onClick={handleSaveSettings} loading={isSavingSettings} disabled={!settingsData}>
+              Simpan Pengaturan
+            </Button>
           </div>
         </div>
       )}
@@ -298,43 +301,41 @@ export default function SettingsPage() {
       {/* Templates */}
       {activeTab === "Templates" && (
         <div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-            <form onSubmit={handleUploadTemplate} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div className="mb-3 flex justify-end">
+            <form onSubmit={handleUploadTemplate} className="flex items-center gap-3">
               <input
                 type="file"
                 accept=".docx"
                 ref={fileInputRef}
                 required
-                className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-accent file:text-white hover:file:bg-indigo-600 cursor-pointer"
+                className="cursor-pointer text-sm file:mr-4 file:rounded-md file:border-0 file:bg-accent file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:opacity-92"
               />
-              <button type="submit" className="btn btn-primary btn-sm" disabled={isUploading}>
-                {isUploading ? "Mengunggah..." : "Upload Template"}
-              </button>
+              <Button type="submit" size="sm" loading={isUploading}>
+                Upload Template
+              </Button>
             </form>
           </div>
 
-          <div className="settings-section">
+          <div className="rounded-[14px] border border-border bg-surface p-5">
             {isLoadingTemplates ? (
-              <p className="text-foreground-muted text-sm py-4">Memuat templates...</p>
+              <p className="py-4 text-sm text-foreground-muted">Memuat templates...</p>
             ) : templates.length === 0 ? (
-              <p className="text-foreground-muted text-sm py-4">Belum ada template proposal.</p>
+              <p className="py-4 text-sm text-foreground-muted">Belum ada template proposal.</p>
             ) : (
               templates.map((tpl) => (
-                <div key={tpl.id} className="settings-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: "8px", background: "var(--surface-hover)", color: "var(--foreground)", display: "grid", placeItems: "center" }}>
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"></path><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"></path></svg>
+                <div key={tpl.id} className="flex items-center justify-between border-b border-border py-2.75 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="grid h-9 w-9 place-items-center rounded-lg bg-surface-hover text-foreground">
+                      <FileText size={20} strokeWidth={2} />
                     </div>
                     <div>
-                      <div className="settings-label">{tpl.name}</div>
-                      <div className="settings-hint">Dibuat: {new Date(tpl.created_at).toLocaleDateString("id-ID")}</div>
+                      <div className="text-[13.5px] font-medium text-foreground">{tpl.name}</div>
+                      <div className="mt-0.5 text-xs text-foreground-muted">Dibuat: {new Date(tpl.created_at).toLocaleDateString("id-ID")}</div>
                     </div>
                   </div>
-                  <div>
-                    <button onClick={() => handleDeleteTemplate(tpl.id)} className="text-danger hover:text-danger-hover" title="Hapus Template">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg>
-                    </button>
-                  </div>
+                  <button onClick={() => handleDeleteTemplate(tpl.id)} className="text-danger hover:text-danger-hover" title="Hapus Template">
+                    <Trash2 size={16} strokeWidth={2} />
+                  </button>
                 </div>
               ))
             )}

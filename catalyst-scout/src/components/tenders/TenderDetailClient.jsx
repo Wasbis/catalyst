@@ -3,43 +3,58 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { formatCurrency, formatDeadline, formatDate, formatSource, STATUS_LABELS } from "@/lib/formatters";
+import {
+  ExternalLink, Building2, Sparkles, Check, CheckCircle2, ChevronDown, ChevronLeft,
+  ArrowRight, FileText, Wand2, Shield, Download, Upload, Save, Loader2,
+} from "lucide-react";
+import { formatCurrency, formatDeadline, formatDateTime, formatSource, STATUS_LABELS } from "@/lib/formatters";
 import { VALID_TENDER_STATUSES } from "@/lib/tenderStatus";
-import { updateTenderStatus, addTenderNote } from "@/actions/tenderActions";
+import { updateTenderStatus } from "@/actions/tenderActions";
 import { useToast } from "@/components/ui/ToastProvider";
 import ScoreBadge from "@/components/tenders/ScoreBadge";
 import ConvertToProjectModal from "@/components/tenders/ConvertToProjectModal";
+import DocumentUploadPanel from "@/components/documents/DocumentUploadPanel";
+import CommentThread from "@/components/comments/CommentThread";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import Label from "@/components/ui/Label";
 
 const STATUS_TONE = {
   DITEMUKAN: "slate", DITINJAU: "blue", DIKEJAR: "amber",
   DISERAHKAN: "violet", MENANG: "green", KALAH: "red", BATAL: "zinc",
 };
 
-// Parse notes string → array of note objects
-function parseNotes(notesStr) {
-  if (!notesStr) return [];
-  return notesStr.split("\n---\n").filter(Boolean).map((entry) => {
-    const match = entry.match(/^\[(.+?)\] (.+?): (.+)$/s);
-    if (match) return { time: match[1], author: match[2], text: match[3].trim() };
-    return { time: "", author: "Tim", text: entry.trim() };
-  });
-}
+const TONE_CLASSES = {
+  slate:  "bg-[#eef2f7] text-[#475569]",
+  blue:   "bg-[#e8efff] text-[#1d4ed8]",
+  violet: "bg-[#f1ebfe] text-[#6d28d9]",
+  amber:  "bg-[#fdf2e0] text-[#b45309]",
+  green:  "bg-[#e7f6ed] text-[#15803d]",
+  red:    "bg-[#fdeaef] text-[#be123c]",
+  zinc:   "bg-[#f1f1f3] text-[#71717a]",
+};
 
-function getInitials(name = "") {
-  return name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-}
+const SOURCE_CHIP_CLASSES = {
+  civd: "bg-[#e8efff] text-[#1d4ed8]",
+  geodipa: "bg-[#e7f6ed] text-[#15803d]",
+  manual: "bg-[#eef2f7] text-[#475569]",
+};
 
-export default function TenderDetailClient({ tender }) {
+const KBLI_TONE_CLASSES = {
+  high: { fill: "bg-[#22c55e]", text: "text-[#15803d]" },
+  mid:  { fill: "bg-[#eab308]", text: "text-[#b45309]" },
+  low:  { fill: "bg-[#ef4444]", text: "text-[#be123c]" },
+};
+
+export default function TenderDetailClient({ tender, currentUserId }) {
   const router = useRouter();
   const { addToast } = useToast();
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [notesPending, setNotesPending] = useState(false);
   const [proposalView, setProposalView] = useState(false);
   const [extracting, setExtracting] = useState(false);
 
   const deadline = formatDeadline(tender.deadlineDate);
-  const notes = parseNotes(tender.notes);
 
   // Parse files
   let docFiles = [];
@@ -76,23 +91,12 @@ export default function TenderDetailClient({ tender }) {
     const res = await updateTenderStatus(tender.id, newStatus);
     if (res.success) {
       addToast(`Status → ${STATUS_LABELS[newStatus] ?? newStatus}`, "success");
+      if (res.data?.projectCreated) {
+        addToast("Proyek otomatis dibuat dari tender ini", "success");
+      }
       router.refresh();
     } else {
       addToast(res.error ?? "Gagal mengubah status", "error");
-    }
-  }
-
-  async function handleAddNote() {
-    if (!noteDraft.trim()) return;
-    setNotesPending(true);
-    const res = await addTenderNote(tender.id, noteDraft.trim());
-    setNotesPending(false);
-    if (res.success) {
-      addToast("Catatan ditambahkan", "success");
-      setNoteDraft("");
-      router.refresh();
-    } else {
-      addToast(res.error ?? "Gagal menyimpan catatan", "error");
     }
   }
 
@@ -106,10 +110,10 @@ export default function TenderDetailClient({ tender }) {
       if (!res.ok) {
         throw new Error(resData.error || "Gagal mengekstrak PDF.");
       }
-      
+
       const tkdn = resData.data?.tkdn_percentage;
       const kblis = resData.data?.extracted_kblis;
-      
+
       addToast(
         `Ekstraksi selesai! TKDN: ${tkdn != null ? tkdn + "%" : "-"}, KBLI terdeteksi: ${kblis?.length ? kblis.join(", ") : "tidak ada"}.`,
         "success"
@@ -123,75 +127,92 @@ export default function TenderDetailClient({ tender }) {
   }
 
   if (proposalView) {
-    return <ProposalView tender={tender} onBack={() => setProposalView(false)} />;
+    return <ProposalView tender={tender} currentUserId={currentUserId} onBack={() => setProposalView(false)} />;
   }
 
+  const headerTone = TONE_CLASSES[STATUS_TONE[tender.status]] ?? TONE_CLASSES.slate;
+  const sourceChip = SOURCE_CHIP_CLASSES[(tender.source ?? "manual").toLowerCase()] ?? SOURCE_CHIP_CLASSES.manual;
+
   return (
-    <div className="detail-grid">
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_340px]">
       {/* ── MAIN COLUMN ── */}
-      <div className="detail-main">
+      <div className="flex flex-col gap-4">
         {/* Header card */}
-        <div className="panel">
-          <div className="dh-top">
-            <span className={`source-chip src-${(tender.source ?? "manual").toLowerCase()}`}>
-              {formatSource(tender.source)}
-            </span>
-            {tender.sourceId && <span className="mono-id">TND-{tender.sourceId}</span>}
-            <Link href="/tenders" style={{ fontSize: 12.5, color: "var(--foreground-muted)", textDecoration: "none" }}>← Tenders</Link>
-            {tender.sourceUrl && (
-              <a className="ext-link" href={tender.sourceUrl} target="_blank" rel="noreferrer">
-                Buka sumber
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
-              </a>
-            )}
+        <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className={`rounded-[5px] px-2 py-0.75 font-mono text-[11px] font-medium tracking-tight ${sourceChip}`}>
+                {formatSource(tender.source)}
+              </span>
+              {tender.sourceId && <span className="font-mono text-xs text-foreground-muted">TND-{tender.sourceId}</span>}
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link href="/tenders" className="text-[12.5px] text-foreground-muted no-underline hover:text-foreground">← Tenders</Link>
+              {tender.sourceUrl && (
+                <a className="flex items-center gap-1 text-[12.5px] text-accent no-underline hover:underline" href={tender.sourceUrl} target="_blank" rel="noreferrer">
+                  Buka sumber
+                  <ExternalLink size={13} />
+                </a>
+              )}
+            </div>
           </div>
-          <h2 className="dh-title">{tender.title}</h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="m-0 text-[22px] font-medium leading-[1.3] text-foreground">{tender.title}</h2>
+            <span className={`inline-flex items-center gap-1.5 rounded-[5px] px-2 py-0.75 text-xs font-medium ${headerTone}`}>
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+              {STATUS_LABELS[tender.status] ?? tender.status}
+            </span>
+          </div>
           {tender.agency && (
-            <div className="dh-agency">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-3M9 9v.01M9 12v.01M9 15v.01M9 18v.01" /></svg>
+            <div className="mb-4 flex items-center gap-1.5 text-[13px] text-foreground-muted">
+              <Building2 size={15} />
               {tender.agency}
             </div>
           )}
-          <div className="dh-meta">
-            <div className="dh-meta-item">
-              <span className="meta-label">Estimasi Nilai</span>
-              <span className="meta-val">{formatCurrency(tender.budgetEstimated)}</span>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-3 border-t border-border pt-3.5">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-foreground-subtle">Estimasi Nilai</span>
+              <span className="text-sm font-medium text-foreground">{formatCurrency(tender.budgetEstimated)}</span>
             </div>
-            <div className="dh-meta-item">
-              <span className="meta-label">Tenggat</span>
-              <span className={`meta-val ${deadline.isUrgent ? "text-danger" : ""}`}>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-foreground-subtle">Tenggat</span>
+              <span className={`text-sm font-medium ${deadline.isUrgent ? "text-danger" : "text-foreground"}`}>
                 {deadline.label}
               </span>
             </div>
-            <div className="dh-meta-item">
-              <span className="meta-label">Skor Relevansi</span>
-              <span className="meta-val"><ScoreBadge score={tender.matchScore} recommendation={tender.recommendation} /></span>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-foreground-subtle">Skor Relevansi</span>
+              <span className="text-sm font-medium text-foreground"><ScoreBadge score={tender.matchScore} recommendation={tender.recommendation} /></span>
             </div>
-            <div className="dh-meta-item">
-              <span className="meta-label">Ditemukan</span>
-              <span className="meta-val">{formatDate(tender.scrapedAt)}</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-foreground-subtle">Ditemukan</span>
+              <span className="text-sm font-medium text-foreground">{formatDateTime(tender.scrapedAt)}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-foreground-subtle">Diperbarui</span>
+              <span className="text-sm font-medium text-foreground">{formatDateTime(tender.updatedAt ?? tender.scrapedAt)}</span>
             </div>
             {sourceMetadata.tkdn_percentage != null && (
-              <div className="dh-meta-item">
-                <span className="meta-label text-success">Kadar TKDN</span>
-                <span className="meta-val text-success">{sourceMetadata.tkdn_percentage}%</span>
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-success">Kadar TKDN</span>
+                <span className="text-sm font-medium text-success">{sourceMetadata.tkdn_percentage}%</span>
               </div>
             )}
           </div>
         </div>
 
         {/* KBLI Matching */}
-        <div className="panel">
-          <div className="panel-head">
-            <h3>Pencocokan KBLI</h3>
-            <span className="ai-tag">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" /></svg>
+        <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+          <div className="mb-3.5 flex items-center justify-between">
+            <h3 className="text-sm font-medium text-foreground">Pencocokan KBLI</h3>
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1 text-[11.5px] font-medium text-accent">
+              <Sparkles size={13} />
               AI semantic match
             </span>
           </div>
-          <div className="kbli-matches">
+          <div className="flex flex-col gap-2.5">
             {kbliMatched.length === 0 ? (
-              <p className="text-sm text-foreground-subtle" style={{ margin: 0 }}>
+              <p className="m-0 text-sm text-foreground-subtle">
                 Belum ada KBLI yang cocok. Jalankan Ekstraksi PDF pada lampiran dokumen untuk mendeteksi kode KBLI.
               </p>
             ) : (
@@ -199,14 +220,19 @@ export default function TenderDetailClient({ tender }) {
                 const scoreVal = m.score != null ? m.score : 0;
                 const pct = Math.round(scoreVal * 100);
                 const tone = pct >= 70 ? "high" : pct >= 40 ? "mid" : "low";
+                const toneClasses = KBLI_TONE_CLASSES[tone];
                 return (
-                  <div key={m.kbli_code || m.kbliCode} className="kbli-match">
-                    <span className="kbli-code">{m.kbli_code || m.kbliCode}</span>
-                    <div className="kbli-match-body">
-                      <div className="kbli-desc">{m.description}</div>
-                      <div className="kbli-bar"><div className={`kbli-fill fill-${tone}`} style={{ width: pct + "%" }} /></div>
+                  <div key={m.kbli_code || m.kbliCode} className="flex items-center gap-2.5">
+                    <span className="rounded-[5px] bg-[#eaf0fa] px-2 py-0.5 font-mono text-[12.5px] font-medium tracking-tight text-primary">
+                      {m.kbli_code || m.kbliCode}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 text-[12.5px] font-medium text-foreground">{m.description}</div>
+                      <div className="h-1.5 overflow-hidden rounded bg-surface-hover">
+                        <div className={`h-full rounded transition-[width] duration-400 ease-out ${toneClasses.fill}`} style={{ width: pct + "%" }} />
+                      </div>
                     </div>
-                    <span className={`kbli-pct pct-${tone}`}>{pct}%</span>
+                    <span className={`w-9 shrink-0 text-right text-[13px] font-medium ${toneClasses.text}`}>{pct}%</span>
                   </div>
                 );
               })
@@ -216,46 +242,21 @@ export default function TenderDetailClient({ tender }) {
 
         {/* Attachment files & deep PDF extraction */}
         {docFiles.length > 0 && (
-          <div className="panel">
-            <div className="panel-head">
-              <h3>Lampiran Dokumen ({docFiles.length})</h3>
-              <button
-                onClick={handleExtractPdf}
-                disabled={extracting}
-                className="btn btn-secondary btn-sm"
-                style={{ gap: 6 }}
-              >
-                {extracting ? (
-                  <>
-                    <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Mengekstrak...
-                  </>
-                ) : (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>
-                    Ekstrak KBLI & TKDN
-                  </>
-                )}
-              </button>
+          <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+            <div className="mb-3.5 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-foreground">Lampiran Dokumen ({docFiles.length})</h3>
+              <Button variant="neutral" size="sm" onClick={handleExtractPdf} disabled={extracting}>
+                {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                {extracting ? "Mengekstrak..." : "Ekstrak KBLI & TKDN"}
+              </Button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div className="flex flex-col gap-2.5">
               {docFiles.map((doc, idx) => (
                 <div
                   key={idx}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "10px 14px",
-                    borderRadius: 10,
-                    border: "1px solid var(--border)",
-                    background: "var(--surface-hover)",
-                  }}
+                  className="flex items-center justify-between rounded-[10px] border border-border bg-surface-hover px-3.5 py-2.5"
                 >
-                  <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--foreground)", maxWidth: "75%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span className="max-w-[75%] truncate text-[13.5px] font-medium text-foreground">
                     {doc.file_name}
                   </span>
                   {doc.download_url && (
@@ -263,8 +264,7 @@ export default function TenderDetailClient({ tender }) {
                       href={doc.download_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="btn btn-secondary btn-sm"
-                      style={{ padding: "4px 10px", fontSize: 12 }}
+                      className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground-muted no-underline transition-colors duration-120 ease-out hover:text-foreground hover:border-foreground-subtle"
                     >
                       Unduh
                     </a>
@@ -277,80 +277,71 @@ export default function TenderDetailClient({ tender }) {
 
         {/* Deskripsi */}
         {tender.description && (
-          <div className="panel">
-            <div className="panel-head"><h3>Deskripsi &amp; Persyaratan</h3></div>
-            <p className="tender-text" style={{ whiteSpace: "pre-line" }}>{tender.description}</p>
+          <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+            <div className="mb-3.5"><h3 className="text-sm font-medium text-foreground">Deskripsi &amp; Persyaratan</h3></div>
+            <p className="whitespace-pre-line text-[13.5px] leading-[1.7] text-foreground">{tender.description}</p>
           </div>
         )}
 
-        {/* Notes */}
-        <div className="panel">
-          <div className="panel-head">
-            <h3>Catatan Tim</h3>
-            <span style={{ fontSize: 13, color: "var(--foreground-subtle)", fontWeight: 700 }}>{notes.length}</span>
+        {/* Comments */}
+        <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+          <div className="mb-3.5">
+            <h3 className="text-sm font-medium text-foreground">Komentar Tim</h3>
           </div>
-          <div className="notes-list">
-            {notes.length === 0 && <p style={{ fontSize: 13, color: "var(--foreground-subtle)" }}>Belum ada catatan. Tambahkan diskusi tim di bawah.</p>}
-            {notes.map((n, i) => (
-              <div key={i} className="note">
-                <div className="note-avatar">{getInitials(n.author)}</div>
-                <div className="note-body">
-                  <div className="note-meta">
-                    <strong>{n.author}</strong>
-                    {n.time && <span className="note-time">{n.time}</span>}
-                  </div>
-                  <p className="note-text">{n.text}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="note-compose">
-            <textarea
-              className="input" rows={2} value={noteDraft} placeholder="Tulis catatan…"
-              onChange={(e) => setNoteDraft(e.target.value)}
-              style={{ resize: "none", fontFamily: "inherit", fontSize: 13 }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button onClick={handleAddNote} disabled={!noteDraft.trim() || notesPending} className="btn btn-primary btn-sm" style={{ gap: 6 }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
-                {notesPending ? "Menyimpan…" : "Tambah"}
-              </button>
-            </div>
-          </div>
+          <CommentThread
+            entityType="tender_result"
+            entityId={tender.id}
+            currentUserId={currentUserId}
+            revalidatePathTarget={`/tenders/${tender.id}`}
+          />
         </div>
+
+        <DocumentUploadPanel entityType="TenderResult" entityId={tender.id} />
       </div>
 
       {/* ── SIDE COLUMN ── */}
-      <div className="detail-side">
-        {/* Konversi ke Proyek */}
-        {(tender.status === "MENANG" || tender.convertedToProject) && (
-          <ConvertToProjectModal tender={tender} />
-        )}
-
+      <div className="flex flex-col gap-4 lg:sticky lg:top-0">
         {/* Status & Aksi */}
-        <div className="panel action-panel">
-          <div className="panel-head"><h3>Status &amp; Aksi</h3></div>
-          <div className="current-status">
-            <span style={{ fontSize: 12, color: "var(--foreground-muted)", fontWeight: 600 }}>Status saat ini</span>
-            <span className={`badge badge-${STATUS_TONE[tender.status] ?? "slate"}`} style={{ gap: 5 }}>
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "currentColor", display: "inline-block" }} />
+        <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+          <div className="mb-3.5"><h3 className="text-sm font-medium text-foreground">Status &amp; Aksi</h3></div>
+
+          {tender.convertedToProject && tender.projectId && (
+            <Link
+              href={`/projects/${tender.projectId}`}
+              className="mb-3 flex items-center gap-1.5 rounded-[10px] border border-[#bbf0d0] bg-[#e7f6ed] px-3 py-2 text-[12.5px] font-medium text-[#15803d] no-underline transition-colors duration-120 ease-out hover:bg-[#d6f5e3]"
+            >
+              <CheckCircle2 size={14} />
+              Sudah dikonversi ke Proyek
+              <ArrowRight size={13} className="ml-auto shrink-0" />
+            </Link>
+          )}
+
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-xs font-medium text-foreground-muted">Status saat ini</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-[5px] px-2 py-0.75 text-xs font-medium ${headerTone}`}>
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
               {STATUS_LABELS[tender.status] ?? tender.status}
             </span>
           </div>
 
           {/* Status picker */}
-          <div style={{ position: "relative", marginBottom: 12 }}>
-            <button className="status-picker-btn" onClick={() => setStatusMenuOpen((v) => !v)}>
+          <div className="relative mb-3">
+            <button
+              type="button"
+              onClick={() => setStatusMenuOpen((v) => !v)}
+              className="flex w-full items-center justify-between rounded-[10px] border border-border bg-surface-hover px-3 py-2.5 text-[13px] font-medium text-foreground transition-colors duration-120 ease-out hover:border-accent"
+            >
               Ubah status
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 9l-7 7-7-7" /></svg>
+              <ChevronDown size={15} />
             </button>
             {statusMenuOpen && (
-              <div className="status-menu" style={{ top: 46, left: 0, right: 0 }}>
+              <div className="animate-panel-in absolute inset-x-0 top-[calc(100%+4px)] z-30 overflow-hidden rounded-[11px] border border-border bg-surface p-1.5 shadow-[0_18px_48px_rgba(4,19,46,0.20)]">
                 {VALID_TENDER_STATUSES.filter((s) => s !== tender.status).map((s) => (
-                  <button key={s} onClick={() => handleStatusChange(s)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: 0, background: "transparent", padding: "8px 12px", fontSize: 13, fontWeight: 600, color: "var(--foreground)", cursor: "pointer", fontFamily: "inherit" }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = "var(--surface-hover)"}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                  <button
+                    key={s}
+                    onClick={() => handleStatusChange(s)}
+                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium text-foreground transition-colors duration-120 ease-out hover:bg-surface-hover"
+                  >
                     {STATUS_LABELS[s] ?? s}
                   </button>
                 ))}
@@ -358,48 +349,31 @@ export default function TenderDetailClient({ tender }) {
             )}
           </div>
 
-          <div className="action-buttons">
-            <button className="btn btn-primary btn-md full" onClick={() => setProposalView(true)} style={{ gap: 8 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 18v-6M9 15h6" /></svg>
+          <div className="flex flex-col gap-2">
+            <Button className="w-full" onClick={() => setProposalView(true)}>
+              <FileText size={16} />
               Generate Proposal
-            </button>
+            </Button>
             {tender.status === "DITEMUKAN" && (
-              <button className="btn btn-secondary btn-md full" onClick={() => handleStatusChange("DITINJAU")} style={{ gap: 8 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+              <Button variant="neutral" className="w-full" onClick={() => handleStatusChange("DITINJAU")}>
+                <ArrowRight size={16} />
                 Promote ke Lead
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
-        {/* Riwayat Status */}
-        <div className="panel">
-          <div className="panel-head"><h3>Riwayat Status</h3></div>
-          <div className="timeline">
-            {[
-              { status: tender.status, at: tender.updatedAt ?? tender.scrapedAt, by: "Sistem" },
-              { status: "DITEMUKAN", at: tender.scrapedAt, by: "Scraper" },
-            ].map((h, i) => {
-              const tone = STATUS_TONE[h.status] ?? "slate";
-              return (
-                <div key={i} className="tl-item">
-                  <span className={`tl-dot tl-${tone}`} />
-                  <div>
-                    <div className="tl-status">{STATUS_LABELS[h.status] ?? h.status}</div>
-                    <div className="tl-meta">{formatDate(h.at)} · {h.by}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        {/* Konversi manual: fallback untuk tender MENANG yang belum tersambung ke Project */}
+        {tender.status === "MENANG" && !tender.convertedToProject && (
+          <ConvertToProjectModal tender={tender} />
+        )}
       </div>
     </div>
   );
 }
 
 /* ── Proposal View ── */
-function ProposalView({ tender, onBack }) {
+function ProposalView({ tender, currentUserId, onBack }) {
   const { addToast } = useToast();
   const [phase, setPhase] = useState("setup"); // setup | generating | ready
   const [genStep, setGenStep] = useState(0);
@@ -449,7 +423,7 @@ function ProposalView({ tender, onBack }) {
   async function handleGenerate() {
     setPhase("generating");
     setGenStep(0);
-    
+
     // Animate loader steps for professional feel
     const stepInterval = setInterval(() => {
       setGenStep((s) => {
@@ -496,7 +470,7 @@ function ProposalView({ tender, onBack }) {
       const resData = await res.json();
       if (res.ok) {
         setDraft(resData.data);
-        
+
         // Initialize editing state
         const initialEditing = {};
         resData.data.blocks.forEach((b) => {
@@ -570,7 +544,7 @@ function ProposalView({ tender, onBack }) {
         throw new Error(data.error || "Gagal meng-import timeline.");
       }
       addToast("Timeline berhasil di-import! Blok DURATION & COMMERCIAL telah diperbarui.", "success");
-      
+
       // Reload draft
       await loadDraftDetails(draft.id);
     } catch (err) {
@@ -589,61 +563,53 @@ function ProposalView({ tender, onBack }) {
   const totalBlocks = draft?.blocks?.length || 0;
 
   return (
-    <div className="prop-screen">
+    <div className="flex flex-col gap-5">
       {/* Header */}
-      <div className="prop-header">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="prop-context-label">Proposal untuk</div>
-          <h2 className="prop-tender-title">{tender.title}</h2>
-          <p className="prop-tender-meta">{tender.agency} · {formatCurrency(tender.budgetEstimated)}</p>
+          <div className="mb-1 text-[11.5px] font-medium uppercase tracking-wider text-foreground-subtle">Proposal untuk</div>
+          <h2 className="m-0 mb-1 text-lg font-medium text-foreground">{tender.title}</h2>
+          <p className="m-0 text-[13px] text-foreground-muted">{tender.agency} · {formatCurrency(tender.budgetEstimated)}</p>
         </div>
-        <button className="btn btn-secondary btn-md" onClick={onBack} style={{ gap: 7, flexShrink: 0 }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+        <Button variant="neutral" onClick={onBack} className="shrink-0">
+          <ChevronLeft size={15} />
           Kembali ke Detail
-        </button>
+        </Button>
       </div>
 
       {/* Setup phase */}
       {phase === "setup" && (
-        <div className="panel prop-setup">
-          <div className="ai-hero">
-            <div className="ai-hero-icon">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" /></svg>
+        <div className="flex flex-col gap-4 rounded-[14px] border border-border bg-surface px-5 py-4.5">
+          <div className="mb-1 flex items-center gap-3.5">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-[14px] bg-accent text-white">
+              <Sparkles size={26} />
             </div>
             <div>
-              <h3>Interactive AI Proposal Generator</h3>
-              <p>Sesuaikan persyaratan user, pilih template visual, lalu Project Maker akan membuat draf proposal per-section secara otomatis.</p>
+              <h3 className="m-0 mb-1 text-base font-medium text-foreground">Interactive AI Proposal Generator</h3>
+              <p className="m-0 text-[13px] text-foreground-muted">Sesuaikan persyaratan user, pilih template visual, lalu Project Maker akan membuat draf proposal per-section secara otomatis.</p>
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div className="field">
-              <label className="field-label">Pilih Template Proposal</label>
-              <div className="select-wrap">
-                <select
-                  className="input select"
-                  value={selectedTemplateId}
-                  onChange={(e) => setSelectedTemplateId(e.target.value)}
-                >
-                  {templates.length === 0 ? (
-                    <option value="">Menggunakan default blank template</option>
-                  ) : (
-                    templates.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <svg className="select-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-              </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <Label>Pilih Template Proposal</Label>
+              <Select value={selectedTemplateId} onChange={(e) => setSelectedTemplateId(e.target.value)}>
+                {templates.length === 0 ? (
+                  <option value="">Menggunakan default blank template</option>
+                ) : (
+                  templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))
+                )}
+              </Select>
             </div>
 
-            <div className="field">
-              <label className="field-label">Nama Perusahaan Pengusul</label>
-              <input
+            <div>
+              <Label>Nama Perusahaan Pengusul</Label>
+              <Input
                 type="text"
-                className="input"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="Mis. PT Cliste Rekayasa Indonesia"
@@ -651,24 +617,23 @@ function ProposalView({ tender, onBack }) {
             </div>
           </div>
 
-          <div className="field">
-            <label className="field-label">Panduan / Requirements Tambahan dari User (Opsional)</label>
+          <div>
+            <Label>Panduan / Requirements Tambahan dari User (Opsional)</Label>
             <textarea
-              className="input"
+              className="block w-full resize-none rounded-lg border border-border bg-surface px-3 py-2 text-[13px] text-foreground placeholder:text-foreground-subtle transition-colors duration-150 hover:border-foreground-subtle focus:outline-none focus:border-accent/50 focus:shadow-[0_0_0_3px_var(--accent-active)]"
               rows={3}
               value={userRequirements}
               onChange={(e) => setUserRequirements(e.target.value)}
               placeholder="Mis. Fokuskan pada keahlian FEED laut dalam, sebutkan garansi pemeliharaan 6 bulan, gunakan gaya penulisan formal..."
-              style={{ resize: "none", fontFamily: "inherit" }}
             />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifycontent: "space-between" }} className="masking-note">
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] bg-surface-hover px-3.5 py-2.5 text-[12.5px] text-foreground-muted">
+            <div className="flex items-center gap-2">
+              <Shield size={15} />
               <span>Masking data sensitif otomatis diaktifkan untuk menjaga kerahasiaan PII.</span>
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontWeight: 700, fontSize: 12 }}>
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-foreground">
               <input
                 type="checkbox"
                 checked={useMasking}
@@ -680,27 +645,38 @@ function ProposalView({ tender, onBack }) {
           </div>
 
           <div>
-            <button onClick={handleGenerate} className="btn btn-primary btn-md" style={{ gap: 8 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" /></svg>
+            <Button onClick={handleGenerate}>
+              <Sparkles size={16} />
               Generate Proposal Draf
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {/* Generating phase */}
       {phase === "generating" && (
-        <div className="panel" style={{ textAlign: "center", padding: "32px 24px" }}>
-          <div className="gen-spinner" />
-          <h3 style={{ fontWeight: 800, marginBottom: 8 }}>Sedang Menyusun Proposal…</h3>
-          <p style={{ fontSize: 13, color: "var(--foreground-muted)", marginBottom: 20 }}>Silakan tunggu beberapa saat sementara AI menyusun dokumen.</p>
-          <div className="gen-steps">
+        <div className="rounded-[14px] border border-border bg-surface px-6 py-8 text-center">
+          <Loader2 className="mx-auto mb-3 h-10 w-10 animate-spin text-accent" />
+          <h3 className="mb-2 text-base font-medium text-foreground">Sedang Menyusun Proposal…</h3>
+          <p className="mb-5 text-[13px] text-foreground-muted">Silakan tunggu beberapa saat sementara AI menyusun dokumen.</p>
+          <div className="mx-auto flex max-w-md flex-col gap-2.5 text-left">
             {GEN_STEPS.map((s, i) => (
-              <div key={i} className={`gen-step ${i < genStep ? "done" : i === genStep ? "active" : ""}`}>
+              <div
+                key={i}
+                className={`flex items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-[13.5px] ${
+                  i < genStep
+                    ? "bg-[#e7f6ed] text-[#15803d]"
+                    : i === genStep
+                    ? "bg-accent-soft font-medium text-foreground"
+                    : "bg-surface-hover text-foreground-muted"
+                }`}
+              >
                 {i < genStep ? (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#15803d" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                  <Check size={15} className="shrink-0 text-[#15803d]" />
                 ) : (
-                  <span style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid currentColor", display: "inline-grid", placeItems: "center", fontSize: 11, fontWeight: 800 }}>{i + 1}</span>
+                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 border-current text-[11px] font-medium">
+                    {i + 1}
+                  </span>
                 )}
                 {s}
               </div>
@@ -711,59 +687,59 @@ function ProposalView({ tender, onBack }) {
 
       {/* Ready phase */}
       {phase === "ready" && draft && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="flex flex-col gap-4">
           {/* Top Actions & Timeline Importer */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 18, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 12, color: "var(--foreground-muted)", marginBottom: 5 }}>
-                  Persetujuan Blok: <strong>{approvedCount}</strong> dari {totalBlocks} bagian
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-50 flex-1">
+                <div className="mb-1.5 text-xs text-foreground-muted">
+                  Persetujuan Blok: <span className="font-medium text-foreground">{approvedCount}</span> dari {totalBlocks} bagian
                 </div>
-                <div className="prop-track">
-                  <div className="prop-fill" style={{ width: `${totalBlocks > 0 ? (approvedCount / totalBlocks) * 100 : 0}%` }} />
+                <div className="h-1.5 rounded bg-border">
+                  <div
+                    className="h-full rounded bg-[#22c55e] transition-[width] duration-300 ease-out"
+                    style={{ width: `${totalBlocks > 0 ? (approvedCount / totalBlocks) * 100 : 0}%` }}
+                  />
                 </div>
               </div>
-              
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => setPhase("setup")} style={{ gap: 6 }}>
+
+              <div className="flex items-center gap-2">
+                <Button variant="neutral" size="sm" onClick={() => setPhase("setup")}>
                   Konfigurasi Ulang
-                </button>
-                <button className="btn btn-primary btn-sm" onClick={handleDownloadDocx} style={{ gap: 6 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+                </Button>
+                <Button size="sm" onClick={handleDownloadDocx}>
+                  <Download size={14} />
                   Unduh Dokumen Word (.docx)
-                </button>
+                </Button>
               </div>
             </div>
 
             {/* Excel Timeline Importer */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 12, flexWrap: "wrap", gap: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--foreground)" }}>Timeline Proyek</span>
-                <span style={{ fontSize: 11.5, color: "var(--foreground-muted)" }}>
+            <div className="flex flex-wrap items-center justify-between gap-2.5 border-t border-border pt-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] font-medium text-foreground">Timeline Proyek</span>
+                <span className="text-[11.5px] text-foreground-muted">
                   (Daftar timeline Excel ter-import otomatis memperbarui tabel jadwal proposal)
                 </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div className="flex items-center gap-2.5">
                 <a
                   href={`${process.env.NEXT_PUBLIC_SCRAPER_API_URL || "http://localhost:8000"}/api/v1/proposals/timeline-template`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-accent hover:underline font-semibold"
+                  className="text-xs font-medium text-accent hover:underline"
                 >
                   Unduh Templat Excel
                 </a>
-                <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", gap: 6 }}>
+                <label className="inline-flex h-7.5 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface-hover px-3 text-xs font-medium text-foreground-muted transition-colors duration-120 ease-out hover:text-foreground">
                   {uploadingTimeline ? (
                     <>
-                      <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       Mengunggah...
                     </>
                   ) : (
                     <>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                      <Upload size={13} />
                       Unggah Timeline Excel (.xlsx)
                     </>
                   )}
@@ -774,78 +750,79 @@ function ProposalView({ tender, onBack }) {
           </div>
 
           {/* Proposal draft block lists */}
-          <div className="prop-blocks">
+          <div className="flex flex-col gap-3">
             {draft.blocks?.map((b) => {
               const bState = editingBlocks[b.id] || { content: b.content, comment: b.user_comment || "", approved: b.is_approved };
               return (
-                <div key={b.id} className={`prop-block ${bState.approved ? "approved" : ""}`}>
-                  <div className="pb-head">
-                    <h4 style={{ fontSize: 15, fontWeight: 800, color: "var(--foreground)" }}>{b.title}</h4>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div key={b.id} className={`rounded-[14px] border-2 p-4.5 ${bState.approved ? "border-[#22c55e] bg-[#f0fdf4]" : "border-border"}`}>
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <h4 className="m-0 text-sm font-medium text-foreground">{b.title}</h4>
+                    <div className="flex items-center gap-2">
                       {bState.approved && (
-                        <span className="approved-tag">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                        <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[#15803d]">
+                          <Check size={12} />
                           Disetujui
                         </span>
                       )}
                       <button
-                        className="icon-btn"
-                        style={{ width: 30, height: 30 }}
                         onClick={() => handleBlockChange(b.id, "approved", !bState.approved)}
                         title={bState.approved ? "Batalkan persetujuan" : "Setujui bagian ini"}
+                        className="grid h-7.5 w-7.5 place-items-center rounded-lg text-foreground-muted transition-colors duration-120 ease-out hover:bg-surface-hover hover:text-foreground"
                       >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={bState.approved ? "#15803d" : "currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+                        <Check size={15} className={bState.approved ? "text-[#15803d]" : ""} />
                       </button>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-                    <div className="field">
-                      <label className="field-label" style={{ fontSize: 11, color: "var(--foreground-muted)" }}>Isi Konten Blok</label>
+                  <div className="mt-2 flex flex-col gap-2.5">
+                    <div>
+                      <Label className="text-[11px]">Isi Konten Blok</Label>
                       <textarea
-                        className="input"
+                        className="block w-full resize-y rounded-lg border border-border bg-surface px-3 py-2 text-[13.5px] leading-[1.6] text-foreground transition-colors duration-150 hover:border-foreground-subtle focus:outline-none focus:border-accent/50 focus:shadow-[0_0_0_3px_var(--accent-active)]"
                         rows={6}
                         value={bState.content}
                         onChange={(e) => handleBlockChange(b.id, "content", e.target.value)}
-                        style={{ fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.6 }}
                       />
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end" }}>
-                      <div className="field">
-                        <label className="field-label" style={{ fontSize: 11, color: "var(--foreground-muted)" }}>Catatan Penyesuaian Tim / Revisi</label>
-                        <input
+                    <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto]">
+                      <div>
+                        <Label className="text-[11px]">Catatan Penyesuaian Tim / Revisi</Label>
+                        <Input
                           type="text"
-                          className="input"
                           value={bState.comment}
                           onChange={(e) => handleBlockChange(b.id, "comment", e.target.value)}
                           placeholder="Tulis catatan revisi untuk audit tim..."
-                          style={{ fontSize: 12.5 }}
+                          className="text-xs"
                         />
                       </div>
-                      
-                      <button
-                        onClick={() => handleSaveBlock(b.id)}
-                        disabled={savingBlockId === b.id}
-                        className="btn btn-secondary btn-sm"
-                        style={{ height: 38, gap: 6 }}
-                      >
+
+                      <Button variant="neutral" size="sm" className="h-9.5" onClick={() => handleSaveBlock(b.id)} disabled={savingBlockId === b.id}>
                         {savingBlockId === b.id ? (
                           <>
-                            <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             Menyimpan...
                           </>
                         ) : (
                           <>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                            <Save size={13} />
                             Simpan Bagian
                           </>
                         )}
-                      </button>
+                      </Button>
                     </div>
+                  </div>
+
+                  <div className="mt-2.5 rounded-[14px] border border-border bg-surface px-5 py-4.5">
+                    <div className="mb-3.5">
+                      <h3 className="text-[13px] font-medium text-foreground">Komentar</h3>
+                    </div>
+                    <CommentThread
+                      entityType="proposal_block"
+                      entityId={b.id}
+                      currentUserId={currentUserId}
+                      revalidatePathTarget={`/tenders/${tender.id}`}
+                    />
                   </div>
                 </div>
               );

@@ -8,6 +8,50 @@
 
 ---
 
+## 🔄 CROSSCHECK FASE 1 — Project Pipeline Extension — 2026-06-15
+
+> Audit kode aktual vs klaim ✅ di FASE 1 (§1.0-1.6). **Hasil: valid ~95%**, semua file
+> substantif (bukan stub) — schema, `projectActions.js` (19 fungsi), halaman
+> `/projects`, `/projects/[id]`, `/projects/leads/*`, Kanban, rebrand sidebar,
+> `ConvertToProjectModal`, integrasi `tenders/[id]`.
+>
+> **2 gap ditemukan & sudah di-fix hari ini:**
+> 1. `/projects/leads` jadi halaman orphan (gak ada link dari `/projects`/Sidebar) —
+>    fix: tombol "Lead Pipeline" di `ProjectsToolbar.jsx` (lihat §1.5).
+> 2. Filter `client` di `getProjects()` belum di-wire ke UI — fix: input filter client
+>    di `ProjectsToolbar.jsx` + diteruskan dari `projects/page.jsx` (lihat §1.3).
+>
+> **Bonus fix**: error runtime `Cannot read properties of undefined (reading
+> 'findMany')` di `prisma.project` — Prisma Client belum di-regenerate setelah model
+> `Project` ditambahkan ke schema. Fixed via `npx prisma generate`.
+>
+> **FASE 1 = fondasi siap, lanjut FASE 2 (Document Management Hub)**.
+
+---
+
+## ✅ FASE 2 — Document Management Hub — SELESAI (2026-06-15)
+
+> Implementasi penuh §2.0-2.7 (lihat checklist detail di bawah, semua sudah `[x]`):
+> - Schema: `DocumentCategory` + `DocumentRecord` (+ relasi `User.documents`), `db push`
+>   + `db seed` (6 kategori default: kontrak, bast, surat_kerja, dokumen_administrasi,
+>   dokumen_teknis, lainnya).
+> - `api/documents/upload/route.js` (simpan ke `public/uploads/documents/`, masuk
+>   `.gitignore`), `lib/documentTypes.js` (whitelist `entityType` + grup kategori).
+> - `actions/documentActions.js` + `actions/documentCategoryActions.js` — full CRUD,
+>   `getDocumentsForEntity`, `getReferenceDocuments`.
+> - UI: `/documents` (hub + filter + tabel + form modal upload/edit),
+>   `/settings/document-categories` (dipakai `DocumentCategoryManager.jsx` — gabungan
+>   tabel+form, lihat catatan §2.4).
+> - `DocumentUploadPanel` + `DocumentReferencePicker` terpasang di `TenderDetailClient`
+>   (`entityType="TenderResult"`) dan `ProjectDetailClient` (`entityType="Project"`).
+> - `npx next build` sukses, semua route baru (`/documents`,
+>   `/settings/document-categories`) ke-generate tanpa error.
+>
+> **Belum berfase**: integrasi RAG Knowledge Base (pakai `fileUrl` sebagai sumber
+> ingestion) — sengaja ditunda, lihat catatan §2.0.
+
+---
+
 ## 🎯 AGENDA KAMIS-JUMAT (11-12 Juni 2026)
 
 > Lanjutan TAHAP 3 — Slice 1-4, TAHAP 4 (KBLI), Scraper Log, Settings, dan UI Proposal Generator Flow telah sukses diimplementasikan penuh. Semua prioritas dari PRD v1.0 dan masukan user telah selesai.
@@ -321,13 +365,13 @@ Fase 1-3 punya data untuk diisi ke template.
       `DocumentCategory` + `DocumentRecord` + halaman `/documents`,
       `/settings/document-categories`, component `DocumentUploadPanel` &
       `DocumentReferencePicker` di `tenders/[id]` & `projects/[id]` (§5 Fase 2)
-- [ ] **Fase 3** — HR Module: model `Employee`/`EmployeeDocument` + halaman `/hr`,
-      `/hr/[id]`, reminder dokumen via `Notification` (§5 Fase 3)
+- [x] **Fase 3** — HR Module: model `Employee`/`EmployeeDocument` + halaman `/hr`,
+      `/hr/[id]`, reminder dokumen via `Notification` (§5 Fase 3) — **SELESAI 2026-06-15**
 - [ ] **Fase 4** — Integrasi Project App: create-project API, reporting reference
       (S-Curve/Timesheet deep-link), identity matching — **blocked**, menunggu
       `integration-contract-project-app.md` disepakati dengan tim Project App (§5 Fase 4)
-- [ ] **Fase 5** — Audit Trail / Activity Log: model `AuditLog` + helper `logActivity`
-      terintegrasi ke Fase 1-3 + halaman `/activity-log` (§5 Fase 5)
+- [x] **Fase 5** — Audit Trail / Activity Log: model `AuditLog` + helper `logActivity`
+      terintegrasi ke Fase 1-3 + halaman `/activity-log` (§5 Fase 5) — **SELESAI 2026-06-15**
 - [ ] **Fase 6** _(fase terakhir)_ — Document Generator / Template Engine: rename +
       generalisasi `ProposalTemplate`/`ProposalDraft`/`ProposalBlock` →
       `DocumentTemplate`/`GeneratedDocument`/`DocumentBlock`, panel
@@ -442,8 +486,9 @@ Fase 1-3 punya data untuk diisi ke template.
 - [x] `components/projects/ProjectStatusBadge.jsx` — token warna per status (tambah
       `stage-project-*` baru di `globals.css` kalau perlu, jangan reuse token
       `stage-*` tenders supaya gak ambigu)
-- [x] `components/projects/ProjectFilterBar.jsx` — `sourceType`, `status`, `client`,
-      keyword (pola sama `FilterBar.jsx` tenders — `useSearchParams` + debounce)
+- [x] `components/projects/ProjectsToolbar.jsx` (gabungan FilterBar + ViewToggle) — `sourceType`, `status`, `client`,
+      keyword (pola sama `FilterBar.jsx` tenders — `useSearchParams`) — **fix 2026-06-15**:
+      filter `client` sebelumnya belum di-wire ke `getProjects()`, sekarang sudah
 
 #### 1.4 UI — Halaman Detail `/projects/[id]`
 
@@ -492,6 +537,8 @@ Fase 1-3 punya data untuk diisi ke template.
       rencana lama "halaman `/projects/new`" yang cuma 1 form
 - [x] `Sidebar.jsx` — tambah `NAV_ITEMS` entry "Projects" (`/projects`), icon baru.
       "Leads" cukup sub-nav/tab di dalam `/projects`, tidak perlu entry sidebar terpisah
+      — **fix 2026-06-15**: tombol "Lead Pipeline" ditambahkan di `ProjectsToolbar.jsx`
+      (sebelumnya `/projects/leads` orphan, gak ada link masuk dari `/projects`)
 - [x] **Rebrand "Project Maker"** _(keputusan roadmap §6, 2026-06-13)_ — update judul
       brand di `Sidebar.jsx`/`Topbar`/metadata root layout dari "Cliste" (tender-only)
       jadi mencerminkan scope "Project Maker" (mis. "Project Maker" sebagai nama
@@ -549,46 +596,46 @@ diisi nanti oleh Fase 4 (integrasi Project App).
 
 #### 2.0 Catatan pra-implementasi
 
-- [ ] **Lokasi file upload** — modul ini pure CRUD master data tanpa AI/parsing, jadi
+- [x] **Lokasi file upload** — modul ini pure CRUD master data tanpa AI/parsing, jadi
       sesuai aturan boundary CLAUDE.md ditangani **Next.js saja**, tidak lewat
       scraper-engine. File disimpan di `catalyst-scout/public/uploads/documents/`
       (Next.js serve langsung via `/uploads/documents/<filename>`), tambahkan
       `public/uploads/` ke `.gitignore` (pola sama seperti `storage/` di scraper-engine).
-- [ ] **`DocumentCategory` dinamis (poin 5 feedback 2026-06-14)** — seed beberapa kategori
+- [x] **`DocumentCategory` dinamis (poin 5 feedback 2026-06-14)** — seed beberapa kategori
       default saat migrasi (`kontrak`, `bast`, `surat_kerja`, `dokumen_administrasi`,
       `dokumen_teknis`, dll, masing-masing dengan `group` yang sesuai), tapi admin bisa
       tambah/edit/nonaktifkan dari `/settings/document-categories` — jangan hardcode enum
       di kode.
-- [ ] **`entityType`/`entityId` polymorphic** — pola sama `AuditLog` (Area 5). Validasi
+- [x] **`entityType`/`entityId` polymorphic** — pola sama `AuditLog` (Area 5). Validasi
       `entityType` di server action terhadap whitelist string (`"TenderResult"` |
       `"Project"` | `"ProjectPhase"` | `"ProjectChecklistItem"` | `"ProjectLead"` |
       `null`), bukan enum Prisma — biar gampang nambah entity baru tanpa migration.
-- [ ] **Kaitan ke RAG (Belum berfase)** — pastikan `fileUrl` nyimpen path file asli (bukan
+- [x] **Kaitan ke RAG (Belum berfase)** — pastikan `fileUrl` nyimpen path file asli (bukan
       cuma metadata) supaya nanti bisa langsung jadi sumber ingestion kalau RAG Knowledge
       Base digarap, tanpa perlu re-upload.
 
 #### 2.1 Schema Prisma — model baru
 
-- [ ] Tambah model `DocumentCategory` (`id`, `name` unique `@db.VarChar(50)`, `label`,
+- [x] Tambah model `DocumentCategory` (`id`, `name` unique `@db.VarChar(50)`, `label`,
       `group` nullable `@db.VarChar(30)`, `isActive` `Boolean @default(true)`,
       `sortOrder` `Int @default(0)`, relasi `documents DocumentRecord[]`)
-- [ ] Tambah model `DocumentRecord` (`id`, `title`, `fileUrl`, `categoryId` nullable →
+- [x] Tambah model `DocumentRecord` (`id`, `title`, `fileUrl`, `categoryId` nullable →
       `DocumentCategory`, `entityType` nullable `@db.VarChar(30)`, `entityId` nullable,
       `client` nullable, `tags` nullable, `isReference` `Boolean @default(false)`,
       `uploadedById` nullable → `User`, `createdAt`, index `[entityType, entityId]` +
       `[categoryId]`)
-- [ ] Seed data awal `DocumentCategory` (lihat catatan 2.0) — via migration seed script
+- [x] Seed data awal `DocumentCategory` (lihat catatan 2.0) — via migration seed script
       atau manual insert sekali setelah `db push`
-- [ ] `npx prisma db push` ke server (100.112.188.84) + `npx prisma generate`
+- [x] `npx prisma db push` ke server (100.112.188.84) + `npx prisma generate`
 
 #### 2.2 API Route & Server Actions
 
-- [ ] `app/api/documents/upload/route.js` — terima `multipart/form-data`, simpan file ke
+- [x] `app/api/documents/upload/route.js` — terima `multipart/form-data`, simpan file ke
       `public/uploads/documents/` (nama file di-prefix `crypto.randomUUID()` biar gak
       collision), return path relatif untuk disimpan ke `fileUrl` (pola request-handling
       sama `api/ai-proposal/templates/route.js`, tapi tanpa proxy ke Python — simpan
       langsung di filesystem Next.js)
-- [ ] `actions/documentActions.js` (baru):
+- [x] `actions/documentActions.js` (baru):
   - `getDocuments({ categoryId, group, entityType, entityId, client, keyword,
     isReference, page })` — filter + pagination, pola sama `getTenders`
   - `getDocumentById(id)`
@@ -603,7 +650,7 @@ diisi nanti oleh Fase 4 (integrasi Project App).
   - `getReferenceDocuments({ categoryId, client, tags, excludeEntityType,
     excludeEntityId })` — dipakai `DocumentReferencePicker` (lihat §2.5), filter
     `isReference: true`
-- [ ] `actions/documentCategoryActions.js` (baru):
+- [x] `actions/documentCategoryActions.js` (baru):
   - `getDocumentCategories({ activeOnly })` — utk populate dropdown kategori
   - `createDocumentCategory(formData)` / `updateDocumentCategory(id, formData)` /
     `deactivateDocumentCategory(id)` — soft-delete via `isActive: false` (kategori yang
@@ -611,47 +658,50 @@ diisi nanti oleh Fase 4 (integrasi Project App).
 
 #### 2.3 UI — Halaman `/documents` (Document Hub)
 
-- [ ] `app/(dashboard)/documents/page.jsx` — async Server Component, panggil
+- [x] `app/(dashboard)/documents/page.jsx` — async Server Component, panggil
       `getDocuments()`
-- [ ] `components/documents/DocumentTable.jsx` — kolom: title, kategori (badge, warna by
+- [x] `components/documents/DocumentTable.jsx` — kolom: title, kategori (badge, warna by
       `group`), client, link entity asal (kalau `entityType`/`entityId` terisi, link ke
       `/tenders/[id]` atau `/projects/[id]`), badge `isReference`, link file,
       aksi edit/hapus
-- [ ] `components/documents/DocumentFilterBar.jsx` — filter `categoryId`, `group`,
+- [x] `components/documents/DocumentFilterBar.jsx` — filter `categoryId`, `group`,
       `entityType`, `client`, `isReference`, keyword (pola sama
       `FilterBar.jsx` tenders)
-- [ ] `components/documents/DocumentFormModal.jsx` — form tambah/edit (title, kategori
+- [x] `components/documents/DocumentFormModal.jsx` — form tambah/edit (title, kategori
       dropdown dinamis dari `getDocumentCategories`, client, tags, `entityType`/`entityId`
       opsional, toggle `isReference`) + upload file (panggil
       `api/documents/upload` dulu, baru submit form dengan URL hasil upload)
 
 #### 2.4 UI — Halaman `/settings/document-categories`
 
-- [ ] `app/(dashboard)/settings/document-categories/page.jsx` — async Server Component,
+- [x] `app/(dashboard)/settings/document-categories/page.jsx` — async Server Component,
       panggil `getDocumentCategories({ activeOnly: false })`
-- [ ] `components/settings/DocumentCategoryClient.jsx` — kolom: name (slug), label, group,
+- [x] `components/settings/DocumentCategoryClient.jsx` — kolom: name (slug), label, group,
       jumlah dokumen terkait, status aktif, aksi edit/nonaktifkan
-- [ ] `components/settings/DocumentCategoryFormModal.jsx` — form tambah/edit (`name`,
+- [x] `components/settings/DocumentCategoryFormModal.jsx` — form tambah/edit (`name`,
       `label`, `group` dropdown teknis/komersial/legal/hr, `sortOrder`)
+      — **impl 2026-06-15**: digabung jadi satu komponen
+      `components/documents/DocumentCategoryManager.jsx` (tabel + form inline, tanpa modal
+      terpisah) — fungsionalitas sama, cuma lebih ringkas
 
 #### 2.5 Components embeddable — `tenders/[id]` & `projects/[id]`
 
-- [ ] `components/documents/DocumentUploadPanel.jsx` — panel "Dokumen" (props
+- [x] `components/documents/DocumentUploadPanel.jsx` — panel "Dokumen" (props
       `entityType`, `entityId`): list `DocumentRecord` via `getDocumentsForEntity` +
       form upload baru (title, kategori dropdown, tags, toggle `isReference`). Dipasang
       di `TenderDetailClient.jsx` (entity `"TenderResult"`, jawab poin 3 feedback
       2026-06-14 — sebelumnya tender detail cuma punya lampiran scraping read-only) dan
       `ProjectDetailClient.jsx`/`ProjectDocumentsPanel.jsx` (entity `"Project"`, lihat
       Fase 1 §1.4)
-- [ ] `components/documents/DocumentReferencePicker.jsx` — tombol "Cari Referensi
+- [x] `components/documents/DocumentReferencePicker.jsx` — tombol "Cari Referensi
       Dokumen" → modal filter by kategori/client/tags, browse `getReferenceDocuments()`
       (exclude entity saat ini), preview/download dokumen. Dipasang di kedua halaman
       detail yang sama (jawab poin 4 feedback 2026-06-14)
 
 #### 2.6 Sidebar
 
-- [ ] `Sidebar.jsx` — tambah `NAV_ITEMS` entry "Documents" (`/documents`), icon baru
-- [ ] `Sidebar.jsx` (atau menu settings) — tambah link "Document Categories"
+- [x] `Sidebar.jsx` — tambah `NAV_ITEMS` entry "Documents" (`/documents`), icon baru
+- [x] `Sidebar.jsx` (atau menu settings) — tambah link "Document Categories"
       (`/settings/document-categories`)
 
 #### 2.7 Data Pipeline Ringkas
@@ -673,15 +723,16 @@ DocumentRecord (DB)
 
 ---
 
-### 🟤 FASE 3 — HR Module (detail)
+### ✅ FASE 3 — HR Module (detail) — SELESAI (2026-06-15)
 
 > Master data karyawan + dokumen pribadi dengan tracking masa berlaku, untuk lampiran
 > personel di dokumen tender/project. Referensi schema sketch: `project-maker-roadmap.md`
-> §4 Area 2. Independen dari Fase 1-2 — bisa paralel.
+> §4 Area 2. Implementasi penuh §3.0-3.5 (semua sudah `[x]`), termasuk test end-to-end
+> (upload, view via API ber-auth, path traversal guard, notif expiry otomatis).
 
 #### 3.0 Catatan pra-implementasi
 
-- [ ] **PII — storage & access control `EmployeeDocument`** — KTP/BPJS/Ijazah/KK/NPWP
+- [x] **PII — storage & access control `EmployeeDocument`** — KTP/BPJS/Ijazah/KK/NPWP
       adalah data pribadi sensitif, **beda level** dari kontrak/BAST di Fase 2. **Jangan**
       pakai pola `public/uploads/` (file ke-serve tanpa auth ke siapa saja yang punya
       link). Simpan di folder non-public `catalyst-scout/storage/hr/` (gitignored, pola
@@ -690,7 +741,7 @@ DocumentRecord (DB)
       file (401 kalau belum login). *(Catatan tambahan, bukan blocking Fase 3: pola
       `public/uploads/` di Fase 2 untuk kontrak/BAST masih oke untuk MVP, tapi worth
       direvisit kalau dokumen tersebut juga dianggap confidential.)*
-- [ ] **Mekanisme reminder expiry — belum ada scheduler persistent di Next.js.** Hanya
+- [x] **Mekanisme reminder expiry — belum ada scheduler persistent di Next.js.** Hanya
       scraper-engine yang punya asyncio loop. Pilihan:
       - **(a) Lazy-check (default Fase 3 MVP)** — tiap `/hr` page di-load, hitung
         `status` per `EmployeeDocument` on-the-fly dari `expiryDate`; kalau status
@@ -701,7 +752,10 @@ DocumentRecord (DB)
         `EmployeeDocument.expiryDate` — lebih reliable (jalan otomatis tiap hari)
         tapi scraper-engine jadi nyentuh tabel HR (cross-domain). Didiskusikan kalau
         opsi (a) kerasa kurang.
-- [ ] **`docType` fixed set** (per roadmap): `ktp | bpjs | ijazah | kk | npwp`.
+      - **Diimplementasi: opsi (a)** — `checkExpiringDocumentsAndNotify()` dipanggil
+        dari `getEmployees()`, sudah ditest membuat `Notification` untuk
+        `expiring_soon`/`expired`.
+- [x] **`docType` fixed set** (per roadmap): `ktp | bpjs | ijazah | kk | npwp`.
       `status` dihitung: `valid` (expiryDate > now+30hari atau null utk dokumen tanpa
       expiry seperti ijazah/kk/npwp), `expiring_soon` (`expiryDate <= now+30hari`),
       `expired` (`expiryDate < now`), `missing` (belum ada record `EmployeeDocument`
@@ -709,25 +763,25 @@ DocumentRecord (DB)
 
 #### 3.1 Schema Prisma — model baru
 
-- [ ] Tambah model `Employee` (`id`, `name`, `position` nullable, `isActive` default
+- [x] Tambah model `Employee` (`id`, `name`, `position` nullable, `isActive` default
       `true`, relasi `documents EmployeeDocument[]`)
-- [ ] Tambah kolom placeholder `Employee.originApplicantId` (String?, nullable) +
+- [x] Tambah kolom placeholder `Employee.originApplicantId` (String?, nullable) +
       `Employee.source` (String? "internal"|"admin_website_vacancy"|
       "admin_website_scholarship") — prep untuk Area 6 (integrasi admin website,
       "Belum berfase"), tidak mengubah flow Fase 3 yang ada
-- [ ] Tambah model `EmployeeDocument` (`id`, `employeeId`/relasi ke `Employee`,
+- [x] Tambah model `EmployeeDocument` (`id`, `employeeId`/relasi ke `Employee`,
       `docType` `@db.VarChar(20)`, `fileUrl`, `expiryDate` nullable, `status`
       `@db.VarChar(20)`)
-- [ ] `npx prisma db push` ke server (100.112.188.84) + `npx prisma generate`
+- [x] `npx prisma db push` ke server (100.112.188.84) + `npx prisma generate`
 
 #### 3.2 API Route & Server Actions
 
-- [ ] `app/api/hr/upload/route.js` — terima `multipart/form-data`, simpan file ke
+- [x] `app/api/hr/upload/route.js` — terima `multipart/form-data`, simpan file ke
       `catalyst-scout/storage/hr/` (gitignored, **bukan** `public/`), return path
       relatif untuk `EmployeeDocument.fileUrl`
-- [ ] `app/api/hr/files/[...path]/route.js` — `getCurrentUser()` guard → stream file
+- [x] `app/api/hr/files/[...path]/route.js` — `getCurrentUser()` guard → stream file
       dari `storage/hr/` (401 kalau belum login, 404 kalau file gak ada)
-- [ ] `actions/hrActions.js` (baru):
+- [x] `actions/hrActions.js` (baru):
   - `getEmployees({ isActive, keyword, page })` — list + filter, pola sama `getTenders`;
     sekaligus compute `status` per `docType` untuk badge kelengkapan
   - `getEmployeeById(id)` — detail + semua `EmployeeDocument`
@@ -743,30 +797,30 @@ DocumentRecord (DB)
 
 #### 3.3 UI — Halaman `/hr`
 
-- [ ] `app/(dashboard)/hr/page.jsx` — async Server Component, panggil `getEmployees()`
+- [x] `app/(dashboard)/hr/page.jsx` — async Server Component, panggil `getEmployees()`
       (sekaligus trigger `checkExpiringDocumentsAndNotify()`)
-- [ ] `components/hr/EmployeeTable.jsx` — kolom: nama, posisi, status aktif, 5 badge
+- [x] `components/hr/EmployeeTable.jsx` — kolom: nama, posisi, status aktif, 5 badge
       kelengkapan dokumen (KTP/BPJS/Ijazah/KK/NPWP)
-- [ ] `components/hr/EmployeeDocumentBadge.jsx` — badge per `docType`, warna per
+- [x] `components/hr/EmployeeDocumentBadge.jsx` — badge per `docType`, warna per
       `status` (valid/expiring_soon/expired/missing — token baru di `globals.css`,
       bisa reuse `success/warning/danger` yang sudah ada utk 3 dari 4 status)
-- [ ] Filter bar: `isActive`, keyword (nama/posisi)
+- [x] Filter bar: `isActive`, keyword (nama/posisi)
 
 #### 3.4 UI — Halaman Detail `/hr/[id]`
 
-- [ ] `app/(dashboard)/hr/[id]/page.jsx` — fetch via `getEmployeeById`
-- [ ] `components/hr/EmployeeDetailClient.jsx` — info karyawan (nama, posisi, status
+- [x] `app/(dashboard)/hr/[id]/page.jsx` — fetch via `getEmployeeById`
+- [x] `components/hr/EmployeeDetailClient.jsx` — info karyawan (nama, posisi, status
       aktif, toggle aktif/nonaktif)
-- [ ] `components/hr/EmployeeDocumentList.jsx` — list 5 `docType`, tiap baris:
+- [x] `components/hr/EmployeeDocumentList.jsx` — list 5 `docType`, tiap baris:
       status badge, `expiryDate` (kalau ada), link "Lihat" (via
       `/api/hr/files/[...path]`, auth-gated), tombol upload/replace
-- [ ] `components/hr/EmployeeDocumentUploadForm.jsx` — form upload per `docType`
+- [x] `components/hr/EmployeeDocumentUploadForm.jsx` — form upload per `docType`
       (file + `expiryDate` opsional) → `POST /api/hr/upload` lalu
       `upsertEmployeeDocument`
 
 #### 3.5 Sidebar
 
-- [ ] `Sidebar.jsx` — tambah `NAV_ITEMS` entry "HR" (`/hr`), icon baru
+- [x] `Sidebar.jsx` — tambah nav entry "Karyawan" (`/hr`) di grup "Master Data", icon baru (`HrIcon`)
 
 #### 3.6 Data Pipeline Ringkas
 
@@ -796,23 +850,59 @@ status dihitung: valid | expiring_soon (<=30 hari) | expired | missing
 > `integration-contract-project-app.md` disepakati dengan tim Project App — **bukan**
 > task yang bisa dimulai sekarang. Jangan mulai 4.1-4.5 sebelum 4.0 selesai.
 
-#### 4.0 Prasyarat (blocking — lihat `integration-contract-project-app.md` §7)
+#### 4.0 Prasyarat (blocking — lihat `integration-contract-project-app.md` v2 §7)
 
-- [ ] `{PROJECT_APP_URL}` — base URL endpoint integrasi disepakati
-- [ ] Mekanisme `{SERVICE_TOKEN}` (API key vs service account, penerbitan, rotasi)
-- [ ] Trigger timing create-project: status `Approval` atau `KickOff`?
-- [ ] Webhook callback (§4) tersedia atau tidak — kalau tidak, perlu rencana polling
-- [ ] Mapping status: daftar status Project App ↔ `Approval|KickOff|POSOIssued|
-      Pelaksanaan|Invoicing|Closed` di Catalyst
-- [ ] §6: format URL deep-link S-Curve/Timesheet (`from`/`to` filter) + apakah perlu
-      session Task by Cliste terpisah
-- [ ] §6: API export Excel snapshot tersedia (untuk arsip laporan CTR)?
-- [ ] §9: Skema A (email) vs Skema B (`globalSubject`) — keputusan + status
-      SSO/Entra migration (workstream terpisah, lihat roadmap §2.2)
-- [ ] `ProjectPhase.externalPhaseId` — apakah Project App punya konsep "phase"/"sprint"
-      yang align dengan CTR? Kalau ya, tambah kolom via migration terpisah (non-blocking,
-      **keputusan 2026-06-13**: tidak ditambah sebagai placeholder di Fase 1, lihat
-      roadmap §6)
+> **Update 2026-06-15**: setelah review `application-workflow-projectmanagement.md`
+> & `database-schema-projectmanagement.md` dari tim Project App, kontrak direvisi ke
+> v2 — beberapa prasyarat di bawah **sudah resolved** (lihat catatan masing-masing),
+> sisanya tetap butuh konfirmasi tim Project App. Fase 4 tetap **🚫 BLOCKED** sampai
+> item bertanda 🔴 disepakati.
+
+**Masih blocking (🔴 — butuh tim Project App):**
+
+- [ ] 🔴 `{PROJECT_APP_URL}` — base URL endpoint integrasi disepakati
+- [ ] 🔴 Mekanisme `{SERVICE_TOKEN}` (`APP_INTEGRATION_CLIENTS` — API key vs service
+      account, penerbitan, rotasi)
+- [ ] 🔴 Trigger timing create-project: status `Approval` atau `KickOff`?
+- [ ] 🔴 Provisioning 1 service-account user di Project App (`isGlobalAdmin`/
+      `canCreateProject`) + nilai `globalSubject` tetap untuk `requestedByGlobalSubject`
+      (kontrak v2 §9 — cuma 1x setup data, no code change di sisi mereka)
+- [ ] 🔴 Async flow §3: kalau response `status` awal bukan `completed`, mekanisme
+      polling/notifikasi-nya gimana?
+- [ ] 🔴 §6: format param deep-link S-Curve (`from`/`to` vs `mode`/`view`/
+      `referenceDate`) — didokumentasikan tim Project App
+- [ ] 🔴 §4: apakah Project App bisa sediakan endpoint trusted
+      `POST /api/integrations/projects/close` (one-way notify saat Catalyst
+      `Project.status` → `Closed`)? Kalau tidak, fallback reminder manual
+      (non-blocking, sudah ada solusinya di kontrak v2 §4)
+
+**Sudah resolved (kontrak v2):**
+
+- ✅ Endpoint path → `POST /api/integrations/projects/init` (bukan
+  `/api/integrations/projects`)
+- ✅ Webhook callback full status-mapping (`Approval|KickOff|POSOIssued|Pelaksanaan|
+  Invoicing|Closed` ↔ status Project App) → **tidak relevan**, model `Project`
+  Project App nggak punya lifecycle granular (cuma `archivedAt`/`endAt`).
+  Disederhanakan jadi 1 sinyal "close" opsional (lihat 🔴 di atas)
+- ✅ §6 Timesheet deep-link → **ditunda**, `/projects/[projectId]/view-timesheet`
+  masih placeholder di Project App, tidak blocking S-Curve
+- ✅ §6 API export Excel snapshot → **tersedia**
+  (`GET /api/projects/[projectId]/scurve/export`)
+- ✅ §9 Skema A (email) vs B (`globalSubject`) → untuk create-project flow, pakai
+  pendekatan service-account fixed subject (lihat 🔴 provisioning di atas); identity
+  matching PIC/assignee tetap Skema A (email) jangka pendek, non-blocking
+- ✅ `ProjectPhase.externalPhaseId` → **keputusan 2026-06-13**: tidak ditambah
+  sebagai placeholder di Fase 1 (lihat roadmap §6), non-blocking
+- ✅ `externalProjectUrl` → tidak perlu dari Project App, Catalyst construct sendiri
+  dari `{PROJECT_APP_URL}` + `externalProjectId` (UUID)
+
+**Catalyst-side prep (internal, tidak perlu nunggu tim Project App):**
+
+- [ ] Tambah capture `startDate`/`endDate` di flow `Project` Catalyst (jadi referensi
+      timeline/target di Project App, harus selaras proposal/kesepakatan) — wajib
+      sebelum 4.1 jalan
+- [ ] `.env` placeholder: `PROJECT_APP_URL`, `PROJECT_APP_SERVICE_TOKEN`,
+      `PROJECT_APP_SERVICE_SUBJECT`
 
 #### 4.1 Create-Project API Integration (contract §2-3)
 
@@ -895,7 +985,7 @@ POST {CATALYST_URL}/api/integrations/project-status
 
 ---
 
-### 🟤 FASE 5 — Audit Trail / Activity Log (detail)
+### ✅ FASE 5 — Audit Trail / Activity Log (detail) — SELESAI (2026-06-15)
 
 > Jawab kebutuhan "log perubahan data per project/file, siapa & kapan". Model generik
 > `AuditLog` + helper `logActivity`, dipasang ke server actions Fase 1-3. Referensi:
@@ -906,37 +996,34 @@ POST {CATALYST_URL}/api/integrations/project-status
 
 #### 5.0 Catatan pra-implementasi
 
-- [ ] **Scope dikunci ke audit trail data mutation saja** (create/update/delete/
+- [x] **Scope dikunci ke audit trail data mutation saja** (create/update/delete/
       status_change pada `Project`/`ProjectLead`/`ProjectPhase`/
       `ProjectChecklistItem`/`Employee`/`EmployeeDocument`/`DocumentRecord`/
       `DocumentCategory`).
       Page-view & presence **di luar scope Fase 5** — jangan dicampur ke `AuditLog`.
-- [ ] **Retensi data** — masih open question (roadmap §6 Area 5). Fase 5 MVP: tanpa
-      retention policy/cleanup job (simpan semua). Kebijakan retensi (terutama kalau
-      nanti `AuditLog` correlate dengan data PII HR) didiskusikan terpisah, **tidak
-      blocking** implementasi awal.
-- [ ] `entityId` disimpan sebagai `String` (bukan `Int`) supaya generic — beberapa
-      model pakai `Int` autoincrement (`Project`, `ProjectLead`, dst), `User` pakai
-      `String` (uuid).
+- [x] **Retensi data** — Fase 5 MVP: tanpa retention policy/cleanup job (simpan
+      semua). Kebijakan retensi didiskusikan terpisah, tidak blocking.
+- [x] `entityId` disimpan sebagai `String` (generic, support `Int` autoincrement
+      maupun `String` uuid).
 
 #### 5.1 Schema Prisma — model baru
 
-- [ ] Tambah model `AuditLog` (`id`, `userId` nullable/relasi ke `User`, `action`
+- [x] Tambah model `AuditLog` (`id`, `userId` nullable/relasi ke `User`, `action`
       "create"|"update"|"delete"|"status_change", `entityType`, `entityId` (String),
       `changesJson` (Json? — `{ field: { old, new } }`), `metadata` (Json?),
       `createdAt`)
-- [ ] `npx prisma db push` ke server (100.112.188.84) + `npx prisma generate`
+- [x] `npx prisma db push` ke server (100.112.188.84) + `npx prisma generate`
 
 #### 5.2 Helper — `lib/auditLog.js` (baru)
 
-- [ ] `logActivity({ userId, action, entityType, entityId, changes, metadata })` —
+- [x] `logActivity({ userId, action, entityType, entityId, changes, metadata })` —
       tulis 1 row `AuditLog`. `changes` = object `{ field: { old, new } }` (caller
       hitung diff sebelum panggil); `try/catch` internal — kegagalan log **tidak**
       boleh gagalkan mutasi utamanya (fire-and-forget, log error ke console kalau gagal)
 
 #### 5.3 Integrasi ke Server Actions Fase 1-3
 
-- [ ] `actions/projectActions.js`:
+- [x] `actions/projectActions.js`:
   - `createProjectFromTender`/`createProjectFromLead` → `logActivity(action: "create",
     entityType: "Project", entityId: project.id)`
   - `updateProjectStatus` → `logActivity(action: "status_change", entityType:
@@ -945,28 +1032,27 @@ POST {CATALYST_URL}/api/integrations/project-status
     `updateProjectPhase`, `updateProjectLeadStatus` → masing-masing
     `logActivity` sesuai `entityType` (`ProjectChecklistItem`/`ProjectPhase`/
     `ProjectLead`)
-- [ ] `actions/documentActions.js`: `createDocument`/`updateDocument`/`deleteDocument` →
+- [x] `actions/documentActions.js`: `createDocument`/`updateDocument`/`deleteDocument` →
       `logActivity(entityType: "DocumentRecord")`; `documentCategoryActions.js`:
       `createDocumentCategory`/`updateDocumentCategory`/`deactivateDocumentCategory` →
       `logActivity(entityType: "DocumentCategory")`
-- [ ] `actions/hrActions.js`: `createEmployee`/`updateEmployee`/
+- [x] `actions/hrActions.js`: `createEmployee`/`updateEmployee`/
       `toggleEmployeeActive`/`upsertEmployeeDocument` →
       `logActivity(entityType: "Employee" | "EmployeeDocument")`
 
 #### 5.4 UI — Halaman `/activity-log`
 
-- [ ] `app/(dashboard)/activity-log/page.jsx` — async Server Component, panggil
+- [x] `app/(dashboard)/activity-log/page.jsx` — async Server Component, panggil
       `getAuditLogs({ entityType, userId, dateFrom, dateTo, page })`
-- [ ] `actions/auditLogActions.js` — `getAuditLogs(filters)`, pola sama `getTenders`
+- [x] `actions/auditLogActions.js` — `getAuditLogs(filters)`, pola sama `getTenders`
       (pagination + filter)
-- [ ] `components/activity-log/ActivityLogTable.jsx` — kolom: waktu, user, action,
+- [x] `components/activity-log/ActivityLogTable.jsx` — kolom: waktu, user, action,
       entity (link ke halaman terkait, mis. `Project #42` → `/projects/42`), ringkasan
       `changesJson`
-- [ ] `components/activity-log/ActivityLogFilterBar.jsx` — filter `entityType`,
+- [x] `components/activity-log/ActivityLogFilterBar.jsx` — filter `entityType`,
       `userId`, rentang tanggal
-- [ ] `Sidebar.jsx` — tambah `NAV_ITEMS` entry "Activity Log" (`/activity-log`,
-      admin-only — cek `role === "admin"` di guard halaman, pola sama "Tambah User"
-      di `/settings`)
+- [x] `Sidebar.jsx` — tambah nav entry "Activity Log" (`/activity-log`,
+      admin-only — cek `role === "admin"` di guard halaman dan filter sidebar)
 
 #### 5.5 Data Pipeline Ringkas
 
@@ -994,6 +1080,14 @@ AuditLog (DB)
 > TAHAP 6 sudah ada), tapi value-nya paling besar setelah `ProjectChecklistItem` (Fase 1),
 > `DocumentRecord` (Fase 2), `Employee` (Fase 3) tersedia sebagai sumber data-fill.
 
+> 📄 **Proposal Generator — konsep/workflow/strategi multi-template**: lihat
+> [`docs/document-templates/proposal-generator-strategy.md`](./docs/document-templates/proposal-generator-strategy.md)
+> (klasifikasi section static/data/ai, skema `aiSections` per-section dengan
+> guideline custom, konvensi `{{CLIENT_NAME}}` di heading, studi kasus
+> CRI2408P46 Asset Management). Lihat juga
+> [`docs/document-templates/proposal.md`](./docs/document-templates/proposal.md) untuk
+> bedah struktur teknis template existing.
+
 #### 6.0 Catatan pra-implementasi — strategi minimalisasi token AI
 
 - [ ] **Default = data-fill, bukan AI.** Mayoritas `documentType` (Surat Kerja, BAST,
@@ -1003,10 +1097,12 @@ AuditLog (DB)
 - [ ] **AI sections eksplisit per-template** — hanya heading yang ditandai di
       `aiSections` (mis. "SCOPE OF WORK" di Kontrak/Proposal) yang trigger call AI.
       Kebanyakan template lain realistis `aiSections: []`.
-- [ ] **Reuse Claude Haiku + masking** — pola sama `ai_proposal_agent.py`
-      (`claude-haiku-4-5-20251001`), masking tetap jalan sesuai
-      `security-checklist.md` §7. **Jangan** ganti ke model lebih besar untuk
-      generalisasi ini.
+- [x] **Reuse AI agent + masking** — pola sama `ai_proposal_agent.py`. **Catatan
+      perubahan provider (2026-06-15)**: AI provider diganti dari Claude Haiku
+      ke **OpenAI GPT** (`openai.OpenAI`, model dari env `OPENAI_MODEL` default
+      `gpt-4o-mini`, `OPENAI_API_KEY`) — `anthropic` SDK dihapus dari
+      `requirements.txt`. Masking tetap jalan sesuai `security-checklist.md`
+      §7, **jangan** ganti ke model lebih besar untuk generalisasi ini.
 - [ ] **Prompt minimal & ter-scope** — kirim hanya field relevan ke `sectionKey` yang
       sedang digenerate (mis. `project.name`/`client`/deskripsi singkat), bukan
       seluruh data entity atau `tender_text`.
@@ -1017,42 +1113,42 @@ AuditLog (DB)
       tidak menimpa edit manual tanpa konfirmasi (warning dialog kalau ada block
       `source: "manual"` yang akan ke-overwrite).
 
-#### 6.1 Migrasi/Rename Model — Prisma + SQLAlchemy
+#### 6.1 Migrasi/Rename Model — Prisma + SQLAlchemy ✅ (2026-06-15)
 
-- [ ] Rename `ProposalTemplate` → `DocumentTemplate`: tambah kolom `documentType`
+- [x] Rename `ProposalTemplate` → `DocumentTemplate`: tambah kolom `documentType`
       (`@db.VarChar(30)`, default `"proposal"` untuk row existing), `aiSections`
       (`Json?`), `isActive` (`Boolean @default(true)`). `fileUrl` tetap, tapi
       storage path target generalisasi ke `storage/document_templates/` (existing
       `storage/proposal_templates/` jadi sub-case `documentType="proposal"` atau
       di-migrate isi foldernya — pilih salah satu, catat di commit).
-- [ ] Rename `ProposalDraft` → `GeneratedDocument`: tambah kolom `entityType`
+- [x] Rename `ProposalDraft` → `GeneratedDocument`: tambah kolom `entityType`
       (`@db.VarChar(30)`, default `"TenderResult"` utk row existing),
       `entityId` (`String`, isi dari `tenderResultId.toString()` saat migrasi),
       `documentType` (default `"proposal"`). Kolom `tenderResultId` lama bisa
       dipertahankan nullable untuk backward-compat data lama, atau drop kalau
       `entityType`+`entityId` cukup — **keputusan saat eksekusi**, cek dulu apakah
       ada row existing yang perlu dipertahankan.
-- [ ] Rename `ProposalBlock` → `DocumentBlock`: kolom `source`
+- [x] Rename `ProposalBlock` → `DocumentBlock`: kolom `source`
       (`"data"|"ai"|"manual"`, default `"ai"` utk row existing — sebelumnya semua
       block proposal emang hasil AI/template).
-- [ ] `npx prisma db push` + `npx prisma generate`; sinkronkan rename di
+- [x] `npx prisma db push` + `npx prisma generate`; sinkronkan rename di
       `database.py` (SQLAlchemy) — model class name + `@@map`/`__tablename__`
       ke `document_templates`/`generated_documents`/`document_blocks`.
 
-#### 6.2 Backend — Generalisasi `docx_generator.py` & `ai_proposal_agent.py`
+#### 6.2 Backend — Generalisasi `docx_generator.py` & `ai_proposal_agent.py` ✅ (2026-06-15)
 
-- [ ] `docx_generator.py` — ganti parameter dari tender-specific (`tender_result_id`,
+- [x] `docx_generator.py` — ganti parameter dari tender-specific (`tender_result_id`,
       `sections_to_replace` hardcoded utk proposal) jadi generik: terima
       `entity_data: dict` (field-field yang akan di-substitusi ke placeholder/
       section) + `ai_sections: list[str]` dari `DocumentTemplate.aiSections`. 3 mode
       (section-replace/placeholder/from-scratch) **logic-nya tetap sama**, cuma
       sumber datanya jadi parameter, bukan query `TenderResult` langsung.
-- [ ] `ai_proposal_agent.py` — generalisasi nama (atau biarkan nama file, cukup
-      generalisasi fungsi) jadi terima `section_key` + `entity_data` minimal yang
-      relevan ke section itu (lihat 6.0 poin "Prompt minimal"), bukan seluruh
-      `tender_text`. Masking tetap dipanggil sebelum kirim ke Claude & sesudah
-      terima hasil.
-- [ ] Endpoint `main.py`:
+- [x] `ai_proposal_agent.py` — tambah method generik `generate_document(title,
+      context_text, section_keys, section_guidelines, company_name,
+      user_requirements)` (additive, `generate_proposal()` lama tetap ada untuk
+      `/api/v1/proposals*`). Masking tetap dipanggil sebelum kirim ke AI &
+      sesudah terima hasil. Provider AI: **OpenAI GPT** (lihat 6.0).
+- [x] Endpoint `main.py`:
       - `GET/POST/PUT/DELETE /api/v1/documents/templates[/{id}]` — CRUD
         `DocumentTemplate`, filter by `documentType`, upload `.docx` ke
         `storage/document_templates/`
@@ -1069,49 +1165,53 @@ AuditLog (DB)
         "regenerate all" otomatis tanpa konfirmasi
       - `GET /api/v1/documents/{id}/export` — export `.docx` via
         `DocxGenerator` (generalized)
-      - `POST /api/v1/proposals*` (existing) — tetap ada sebagai **alias** ke
-        endpoint generic dengan `documentType="proposal"` (lihat open question
-        roadmap §6), supaya kalau frontend Proposal Generator (TAHAP 6) mulai
-        dikerjakan duluan/bareng, tidak perlu tunggu Fase 6 selesai total.
+      - `/api/v1/proposals*` (existing) — **tetap ada** (tidak diubah jadi thin
+        alias, scope-nya tetap tender-only sesuai keputusan sebelumnya), tapi
+        sekarang konsisten mengisi `documentType`/`entityType`/`entityId` pada
+        row `GeneratedDocument` yang sama dipakai endpoint `/api/v1/documents*`
+        baru.
 
-#### 6.3 UI — Panel `/settings/document-templates`
+#### 6.3 UI — Panel `/settings/document-templates` ✅ (2026-06-15)
 
-- [ ] `app/(dashboard)/settings/document-templates/page.jsx` — list
+- [x] `app/(dashboard)/settings/document-templates/page.jsx` — list
       `DocumentTemplate` grouped by `documentType`, filter active/archived.
-- [ ] `actions/documentTemplateActions.js` — `getDocumentTemplates(documentType?)`,
+- [x] `actions/documentTemplateActions.js` — `getDocumentTemplates(documentType?)`,
       `uploadDocumentTemplate(formData)`, `updateDocumentTemplate(id, {aiSections,
       isActive})`, `deleteDocumentTemplate(id)` — proxy ke
       `/api/v1/documents/templates*`.
-- [ ] `components/document-templates/TemplateUploadForm.jsx` — pilih
+- [x] `components/document-templates/TemplateUploadForm.jsx` — pilih
       `documentType` (dropdown: Proposal/Surat Kerja/BAST/Invoice/Kontrak/Laporan
       CTR — bisa extend), upload `.docx`.
-- [ ] `components/document-templates/AiSectionsEditor.jsx` — setelah upload,
-      tampilkan daftar heading `Heading 1`/`Heading 2` yang terdeteksi di `.docx`
-      (hasil scan backend saat upload), user centang mana yang `aiSections` (lihat
-      open question roadmap §6 soal UX exact-nya — checklist heading vs convention
-      `[AI]` prefix, putuskan salah satu saat mulai fase ini).
-- [ ] `components/document-templates/TemplateList.jsx` — per `documentType`: badge
-      versi aktif, tombol "Set as active"/"Archive" (versi lama tetap ada untuk
-      referensi `GeneratedDocument` historis, tidak dihapus).
-- [ ] `Sidebar.jsx`/settings nav — tambah entry "Document Templates" di
-      `/settings` (admin-only, pola sama "Activity Log").
+- [x] `components/document-templates/AiSectionsEditor.jsx` — setelah upload,
+      tampilkan daftar heading `Heading 1` yang terdeteksi di `.docx` (hasil scan
+      backend saat upload), user centang mana yang `aiSections` — diimplementasi
+      sebagai checklist heading (bukan convention `[AI]` prefix), reusable juga
+      untuk edit `aiSections` template existing.
+- [x] `components/document-templates/TemplateList.jsx` — per `documentType`: badge
+      status aktif/nonaktif, tombol "Aktifkan"/"Nonaktifkan"/"Hapus" (blocked
+      kalau ada `GeneratedDocument` yang masih reference).
+- [x] `Sidebar.jsx` — tambah entry "Document Templates" di group "Master Data".
 
-#### 6.4 UI — Generate Document dari `ProjectChecklistItem`
+#### 6.4 UI — Generate Document dari `ProjectChecklistItem` ✅ (2026-06-15)
 
-- [ ] Di `ChecklistPanel.jsx` (Fase 1) — tombol "Generate Document" per
-      `ProjectChecklistItem` yang `label`-nya match `documentType` (mis. label
-      "Surat Kerja" → `documentType: "surat_kerja"`). Kalau tidak ada
-      `DocumentTemplate` aktif untuk `documentType` itu, tombol disabled +
-      tooltip "Belum ada template, atur di Settings".
-- [ ] `actions/documentActions.js` — `generateDocument({ documentType, entityType:
-      "Project"|"ProjectChecklistItem"|..., entityId, entityData })` → proxy
+- [x] Di `ChecklistPanel.jsx` (Fase 1) — tombol "Generate Document" per
+      `ProjectChecklistItem` yang `label`-nya match `documentType` (mapping di
+      `lib/documentTypes.js` → `CHECKLIST_LABEL_TO_DOCUMENT_TYPE`, mis. "Surat
+      Kerja" → `documentType: "surat_kerja"`). Kalau tidak ada `DocumentTemplate`
+      aktif untuk `documentType` itu (dicek via `activeDocumentTypes` dari
+      `/projects/[id]/page.jsx`), tombol disabled + tooltip.
+- [x] `actions/generatedDocumentActions.js` — `generateDocument({ documentType,
+      entityType: "Project"|"ProjectPhase", entityId, entityData })` → proxy
       `POST /api/v1/documents`; `getGeneratedDocument(id)`, `updateDocumentBlock`,
-      `regenerateDocumentBlock`, `exportDocument`.
-- [ ] `components/documents/DocumentBlockEditor.jsx` — render per-`DocumentBlock`:
+      `regenerateDocumentBlock`, `exportDocument` (export return base64, bukan
+      stream langsung — endpoint scraper-engine return binary `.docx`).
+- [x] `components/documents/DocumentBlockEditor.jsx` — render per-`DocumentBlock`:
       `source: "data"` (read-only, badge "Data"), `source: "ai"`/`"manual"`
       (editable textarea + badge, tombol "Regenerate" hanya utk `source: "ai"`).
-- [ ] Tombol "Download .docx" → `exportDocument` → simpan `fileUrl` balik ke
-      `ProjectChecklistItem.fileUrl` (update via `updateChecklistItem` Fase 1).
+- [x] Tombol "Export .docx" → `exportDocument` → trigger download browser →
+      `updateChecklistItem(itemId, { status: "sudah" })` (Fase 1). Catatan:
+      `fileUrl` tidak diisi karena export tidak disimpan ke storage server,
+      langsung stream ke client.
 - [ ] Proposal Generator (TAHAP 6 existing plan) — `tenders/[id]/proposal/page.jsx`
       bisa reuse `DocumentBlockEditor`/`documentActions.js` yang sama
       (`documentType: "proposal"`, `entityType: "TenderResult"`), tinggal beda
@@ -1145,6 +1245,115 @@ GeneratedDocument { status: "draft" } + DocumentBlock[]
                                        ▼
                           ProjectChecklistItem.fileUrl (Fase 1) terisi
 ```
+
+#### 6.6 Proposal Generator — Per-Section AI Guideline & Multi-Template
+
+> Detail konsep & studi kasus: lihat
+> [`docs/document-templates/proposal-generator-strategy.md`](./docs/document-templates/proposal-generator-strategy.md).
+> Semua item di bawah masih pending — roadmap untuk sesi implementasi
+> berikutnya.
+
+- [ ] **A** — Ubah `DocumentTemplate.aiSections` dari array of string jadi
+      array of object `{heading, classification: "static"|"data"|"ai",
+      guideline?}` (tetap kolom `Json?`, tanpa migration). Update
+      `POST /api/v1/documents` & `/api/v1/proposals` di
+      `scraper-engine/api/main.py` untuk extract `section_keys` +
+      `section_guidelines` dari situ, exclude `classification: "static"` dari
+      `sections_to_replace`.
+- [ ] **B** — `AiSectionsEditor.jsx`: ganti checklist nama heading jadi UI
+      per-heading dengan radio classification (Static/Data/AI) + textarea
+      guideline (muncul kalau AI), simpan via `updateDocumentTemplate(id, {
+      ai_sections: [...] })`.
+- [ ] **C** — `ProposalSetup.jsx`: tampilkan `DocumentTemplate.proposalType`
+      sebagai label di dropdown pemilihan template (`getProposalTemplates()`).
+- [ ] **D** — Edit heading "ASSET MANAGEMENT DASHBOARD FOR JSP" →
+      "...FOR {{CLIENT_NAME}}" di `CRI2408P46_...docx`, upload sebagai
+      `DocumentTemplate` (`proposalType: "Asset Management Application"`),
+      konfigurasi `aiSections` sesuai studi kasus §6 di strategy doc.
+- [ ] **E** — QA end-to-end: generate proposal pakai template ini untuk 1
+      tender contoh, export `.docx`, bandingkan visual dengan file asli —
+      pastikan section `static` identik 100%, section `ai`/`data` terisi
+      sesuai guideline & data proyek.
+
+#### 6.7 Proposal Generator — Methodology 2 (docxtpl Field Mapper)
+
+> Detail konsep & hasil POC: lihat
+> [`docs/document-templates/proposal-generator-strategy-v2.md`](./docs/document-templates/proposal-generator-strategy-v2.md).
+> Methodology 1 (§6.6) tetap dipakai untuk dokumen non-proposal & template
+> proposal tanpa cover/header dinamis — Methodology 2 untuk proposal dengan
+> cover/header/footer/tabel info/proprietary notice dinamis (kasus template
+> GOKP). Semua item di bawah pending — roadmap sesi implementasi berikutnya.
+
+- ✅ **POC feasibility** — `scraper-engine/testing/docxtpl_poc.py` konfirmasi
+      docxtpl bisa render field dinamis di cover textbox, header/footer,
+      document info table, dan proprietary notice template GOKP (tidak
+      terjangkau Methodology 1). `docxtpl` ditambahkan ke
+      `requirements.txt`. Catatan: ditemukan caveat run-splitting XML —
+      lihat strategy doc v2 §5/§7.
+- ✅ **Phase 1** — DB schema: model baru `Client`, `ProposalRevision`,
+      tambahan field `GeneratedDocument` (`proposalReferenceNumber`,
+      `classification`, `clientId`) & `DocumentTemplate` (`templateMode`,
+      `fieldMappingJson`, `taggedFilePath`). Sudah `prisma db push` ke
+      `catalystDB`.
+- ✅ **Phase 2** — Field Mapper backend: `api/services/docx_field_mapper.py`
+      (`scan_template` ekstrak candidate strings dari seluruh `.docx` —
+      cover/textbox/header/footer/tabel/body, dengan run-merge per paragraf;
+      `apply_field_mapping` tulis tag Jinja2 ke copy template →
+      `taggedFilePath`). Endpoint baru: `GET
+      /api/v1/documents/templates/{id}/field-mapper/scan`, `POST
+      /api/v1/documents/templates/{id}/field-mapper/apply`. Diuji end-to-end
+      pakai template GOKP (649 candidates, scan → apply → render docxtpl
+      semua sukses).
+- ✅ **Phase 3** — Field Mapper UI: `FieldMapperEditor.jsx` (tombol "Field
+      Mapper" di `TemplateList.jsx`, pattern mirip `AiSectionsEditor.jsx`).
+      Candidate dikelompokkan per `group` (cover/header_footer/table/body,
+      table & body collapsed default), filter teks, per-row classify
+      static/data/ai + input Jinja tag + substring opsional + guideline (ai).
+      "Apply" → `applyTemplateFieldMapping` server action → endpoint Phase 2.
+      `npx next build` sukses.
+- ✅ **Phase 3.5** — Reduksi candidate count (649 → 48 untuk template GOKP):
+      `scan_template` sekarang (a) exclude group `body` (sudah scope
+      Methodology 1/`aiSections`), (b) exclude paragraf tabel yang muncul
+      SETELAH Heading 1 pertama (`_post_heading1_table_paragraphs` —
+      tabel konten body seperti "Table III.1 Deliverables"/roadmap, bukan
+      Document Info/Project Info/Revision table di awal dokumen), dan (c)
+      dedupe candidate dengan `(group, text)` sama jadi satu entry
+      `{id, ids, occurrences}` — 1 klasifikasi berlaku untuk semua occurrence
+      (mis. nama client yang muncul di cover + header + footer sekaligus).
+      `FieldMappingItem.id` → `FieldMappingItem.ids: List[str]` di
+      `api/main.py`, `apply_field_mapping` iterate semua `ids` per mapping.
+      `FieldMapperEditor.jsx` diupdate ikut shape baru (`ids`, badge "Nx" untuk
+      occurrences > 1). Hasil akhir GOKP: 48 candidates (cover=16,
+      header_footer=8, table=24) — manual review per-field jadi tractable,
+      LLM classification pass tidak diperlukan untuk saat ini.
+- ✅ **Phase 3.6** — LLM-assisted suggestion (opsional, bukan auto-apply):
+      `api/services/field_mapper_llm.py` (`suggest_field_mapping`) — 1 batch
+      OpenAI call untuk 48 candidates (masking via `MaskingService.from_db`
+      dulu sebelum kirim), return per-candidate `classification`/`jinjaTag`/
+      `fieldHint`/`description` (Bahasa Indonesia) + token usage/cost.
+      Endpoint baru: `POST
+      /api/v1/documents/templates/{id}/field-mapper/suggest`.
+      `FieldMapperEditor.jsx`: tombol "Saran AI (klasifikasi otomatis)" —
+      prefill rows + tampilkan `description`/`fieldHint` per candidate, toast
+      token usage. POC: `scraper-engine/testing/field_mapper_llm_poc.py`
+      (~3.6k token / ~$0.0014 per scan, gpt-4o-mini). Catatan: saran ~85-90%
+      akurat (revision-table rows & beberapa label masih perlu koreksi
+      manual) — tetap perlu review user sebelum "Apply".
+- [ ] **Phase 3.6 — bug pending**: tombol "Saran AI (klasifikasi otomatis)"
+      di `FieldMapperEditor.jsx` dilaporkan tidak muncul di UI (Settings →
+      Document Templates → Field Mapper). Kode sudah ada (`npx eslint`/
+      `npx next build` lulus), kemungkinan cuma cache/HMR — perlu diverifikasi
+      ulang: hard refresh browser, cek apakah search box "Cari teks
+      candidate..." muncul, cek console error. Belum dikonfirmasi fix.
+- [ ] **Phase 4** — Rendering Methodology 2: `_fill_by_template_tags`
+      (docxtpl) di `docx_generator.py` + generalisasi `ai_proposal_agent.py`
+      → `DocumentGeneratorAgent.generate_fields()` (lihat strategy doc v2
+      §3).
+- [ ] **Phase 5** — Endpoint generate baca `templateMode`, pilih rendering
+      yang sesuai; wiring `ProposalSetup.jsx`/`TenderDetailClient.jsx` tetap
+      transparan dari sisi user.
+- [ ] **Phase 6** — QA end-to-end: generate proposal pakai template GOKP
+      (setelah di-tag via Field Mapper), bandingkan visual dengan file asli.
 
 <details>
 <summary>Histori — rencana lama "App 2: Internal Workspace TAHAP A-G" (superseded 2026-06-13)</summary>

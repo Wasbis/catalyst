@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { VALID_TENDER_STATUSES } from "@/lib/tenderStatus";
 import { STATUS_LABELS } from "@/lib/formatters";
 import { updateTenderStatus } from "@/actions/tenderActions";
 import { useToast } from "@/components/ui/ToastProvider";
+import { useKanbanBoard, buildCardMap } from "@/components/ui/kanban/useKanbanBoard";
 import KanbanColumn from "@/components/tenders/KanbanColumn";
 import KanbanToolbar from "@/components/tenders/KanbanToolbar";
+import TenderDetailDrawer from "@/components/tenders/TenderDetailDrawer";
 
 /* ── filter helpers ──────────────────────────── */
 function matchesScore(t, f) {
@@ -32,21 +34,22 @@ function matchesSource(t, f) {
   return !f || (t.source ?? "").toLowerCase() === f.toLowerCase();
 }
 
-function buildCardMap(tenders) {
-  const map = {};
-  VALID_TENDER_STATUSES.forEach((s) => { map[s] = []; });
-  tenders.forEach((t) => {
-    const s = VALID_TENDER_STATUSES.includes(t.status) ? t.status : "DITEMUKAN";
-    map[s].push(t);
-  });
-  return map;
-}
-
 /* ── main board ──────────────────────────────── */
-export default function KanbanBoard({ initialTenders }) {
+export default function KanbanBoard({ initialTenders, currentView, searchParams, totalCount }) {
   const { addToast } = useToast();
-  const [tenders, setTenders] = useState(initialTenders);
-  const undoStack = useRef([]);
+  const {
+    items: tenders,
+    dragOverCol,
+    handleStatusChange,
+    handleDragOver,
+    handleDrop,
+    handleDragLeave,
+    undo,
+  } = useKanbanBoard({
+    initialItems: initialTenders,
+    updateStatusAction: updateTenderStatus,
+    statusLabels: STATUS_LABELS,
+  });
 
   // view state
   const [search,         setSearch]         = useState("");
@@ -57,27 +60,27 @@ export default function KanbanBoard({ initialTenders }) {
   const [density,        setDensity]        = useState("normal");
   const [isFullscreen,   setIsFullscreen]   = useState(false);
   const [collapsedCols,  setCollapsedCols]  = useState({});
-  const [dragOverCol,    setDragOverCol]    = useState(null);
+  const [selectedTenderId, setSelectedTenderId] = useState(null);
+  const [selectedTender,   setSelectedTender]   = useState(null);
 
   /* Keyboard shortcuts */
   useEffect(() => {
     function onKey(e) {
       if (e.key === "Escape" && isFullscreen) setIsFullscreen(false);
-      if ((e.ctrlKey || e.metaKey) && e.key === "z" && undoStack.current.length) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
         e.preventDefault();
-        setTenders(undoStack.current.pop());
-        addToast("Status dikembalikan (Undo)", "info");
+        if (undo()) addToast("Status dikembalikan (Undo)", "info");
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [isFullscreen, addToast]);
+  }, [isFullscreen, addToast, undo]);
 
   /* Derived */
   const filteredTenders = tenders.filter(
     (t) => matchesScore(t, scoreFilter) && matchesDeadline(t, deadlineFilter) && matchesSource(t, sourceFilter)
   );
-  const cardMap = buildCardMap(filteredTenders);
+  const cardMap = buildCardMap(filteredTenders, VALID_TENDER_STATUSES, "DITEMUKAN");
 
   let visibleStatuses = VALID_TENDER_STATUSES;
   if (hideEmpty) visibleStatuses = visibleStatuses.filter((s) => cardMap[s].length > 0);
@@ -94,46 +97,18 @@ export default function KanbanBoard({ initialTenders }) {
     if (key === "source")   setSourceFilter("");
   }
 
-  /* Status change: optimistic + API call */
-  const handleStatusChange = useCallback(async (tenderId, newStatus) => {
-    const id = Number(tenderId);
-    const current = tenders.find((t) => t.id === id);
-    if (!current || current.status === newStatus) return;
-
-    undoStack.current.push([...tenders]);
-
-    // Optimistic update
-    setTenders((prev) => prev.map((t) => t.id === id ? { ...t, status: newStatus } : t));
-
-    const result = await updateTenderStatus(id, newStatus);
-    if (!result.success) {
-      setTenders(undoStack.current.pop());
-      addToast(result.error ?? "Gagal mengubah status", "error");
-    } else {
-      addToast(`Status → ${STATUS_LABELS[newStatus] ?? newStatus}`, "success");
-    }
-  }, [tenders, addToast]);
-
-  /* HTML5 native drag handlers */
-  function handleDragOver(e, status) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverCol(status);
-  }
-
-  function handleDrop(e, status) {
-    e.preventDefault();
-    setDragOverCol(null);
-    if (!e || !status) return;
-    const id = e.dataTransfer?.getData("text/plain");
-    if (id) handleStatusChange(id, status);
+  function handleOpenDetail(id) {
+    const t = tenders.find((t) => t.id === id);
+    setSelectedTender(t ?? null);
+    setSelectedTenderId(id);
   }
 
   return (
     <div
-      className={isFullscreen ? "fixed inset-0 z-40 bg-background overflow-auto p-6" : ""}
+      className={isFullscreen ? "fixed inset-0 z-40 bg-background p-6 flex flex-col" : "flex flex-1 min-h-0 flex-col"}
     >
       <KanbanToolbar
+        currentView={currentView}     searchParams={searchParams}    totalCount={totalCount}
         search={search}               onSearch={setSearch}
         scoreFilter={scoreFilter}     onScoreFilter={setScoreFilter}
         deadlineFilter={deadlineFilter} onDeadlineFilter={setDeadlineFilter}
@@ -146,11 +121,8 @@ export default function KanbanBoard({ initialTenders }) {
 
       {/* Board */}
       <div
-        className="kanban"
-        style={{ gridAutoColumns: "minmax(260px, 1fr)" }}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget)) setDragOverCol(null);
-        }}
+        className="flex flex-1 min-h-0 gap-3.5 overflow-x-auto overflow-y-hidden pb-4"
+        onDragLeave={handleDragLeave}
       >
         {visibleStatuses.map((status) => (
           <KanbanColumn
@@ -165,9 +137,16 @@ export default function KanbanBoard({ initialTenders }) {
             isDragOver={dragOverCol === status}
             onDragOver={(e) => handleDragOver(e, status)}
             onDrop={(e) => handleDrop(e, status)}
+            onOpenDetail={handleOpenDetail}
           />
         ))}
       </div>
+
+      <TenderDetailDrawer
+        tenderId={selectedTenderId}
+        initialData={selectedTender}
+        onClose={() => setSelectedTenderId(null)}
+      />
     </div>
   );
 }

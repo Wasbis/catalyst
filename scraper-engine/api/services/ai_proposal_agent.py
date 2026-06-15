@@ -50,18 +50,19 @@ _SECTION_GUIDELINES: Dict[str, str] = {
 
 class AIProposalAgent:
     def __init__(self):
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = os.getenv("OPENAI_API_KEY")
+        self._model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self._client = None
         if api_key:
             try:
-                import anthropic  # type: ignore[import-untyped]
-                self._client = anthropic.Anthropic(api_key=api_key)
+                import openai  # type: ignore[import-untyped]
+                self._client = openai.OpenAI(api_key=api_key)
             except ImportError:
-                logger.warning("[AIProposalAgent] anthropic package not installed, using template fallback")
+                logger.warning("[AIProposalAgent] openai package not installed, using template fallback")
 
     @property
     def generated_by(self) -> str:
-        return "claude-haiku-4-5-20251001" if self._client else "template"
+        return self._model if self._client else "template"
 
     def generate_proposal(
         self,
@@ -76,11 +77,11 @@ class AIProposalAgent:
         effective_sections = sections or DEFAULT_PROPOSAL_SECTIONS
         try:
             if self._client:
-                return self._generate_with_claude(
+                return self._generate_with_openai(
                     tender_title, tender_text, kbli_code, kbli_description,
                     company_name, effective_sections, user_requirements,
                 )
-            logger.warning("[AIProposalAgent] ANTHROPIC_API_KEY tidak di-set, pakai template fallback")
+            logger.warning("[AIProposalAgent] OPENAI_API_KEY tidak di-set, pakai template fallback")
             return self._generate_from_templates(
                 tender_title, tender_text, kbli_code, kbli_description,
                 company_name, effective_sections,
@@ -89,11 +90,42 @@ class AIProposalAgent:
             logger.error(f"[AIProposalAgent] Error: {e}", exc_info=True)
             return {"status": "error", "error": str(e), "proposal_text": "", "blocks": []}
 
+    def generate_document(
+        self,
+        title: str,
+        context_text: str,
+        section_keys: List[str],
+        section_guidelines: Optional[Dict[str, str]] = None,
+        company_name: str = "PT Cliste Rekayasa Indonesia",
+        user_requirements: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generic per-section AI generator dipakai /api/v1/documents (semua documentType).
+
+        `context_text` adalah ringkasan data entity (sudah dirangkai oleh caller dari
+        Project/ProjectPhase/TenderResult sesuai entityType) yang dijadikan konteks
+        prompt. `section_keys` = aiSections dari DocumentTemplate.
+        """
+        if not section_keys:
+            return {"status": "success", "proposal_text": "", "blocks": [],
+                    "metadata": {"generated_by": self.generated_by}}
+
+        guidelines = {**_SECTION_GUIDELINES, **(section_guidelines or {})}
+        try:
+            if self._client:
+                return self._generate_sections_with_openai(
+                    title, context_text, company_name, section_keys, guidelines, user_requirements,
+                )
+            logger.warning("[AIProposalAgent] OPENAI_API_KEY tidak di-set, pakai placeholder fallback")
+            return self._generate_sections_placeholder(section_keys, company_name)
+        except Exception as e:
+            logger.error(f"[AIProposalAgent] Error generate_document: {e}", exc_info=True)
+            return {"status": "error", "error": str(e), "proposal_text": "", "blocks": []}
+
     # ------------------------------------------------------------------
-    # Claude API generation
+    # OpenAI API generation
     # ------------------------------------------------------------------
 
-    def _generate_with_claude(
+    def _generate_with_openai(
         self,
         tender_title: str,
         tender_text: str,
@@ -152,16 +184,16 @@ Section guidelines:
         if user_requirements:
             prompt += f"\n\nADDITIONAL USER REQUIREMENTS/CONSTRAINTS (YOU MUST STRICTLY FOLLOW THESE):\n{user_requirements}\n"
 
-        message = self._client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = self._client.chat.completions.create(
+            model=self._model,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        raw = message.content[0].text.strip()
+        raw = response.choices[0].message.content.strip()
         json_match = re.search(r"\{[\s\S]+\}", raw)
         if not json_match:
-            raise ValueError(f"Claude response is not valid JSON: {raw[:300]}")
+            raise ValueError(f"OpenAI response is not valid JSON: {raw[:300]}")
 
         blocks = json.loads(json_match.group())["blocks"]
 
@@ -178,12 +210,109 @@ Section guidelines:
                 "kbli_code": kbli_code,
                 "kbli_description": kbli_description,
                 "company_name": company_name,
-                "generated_by": "claude-haiku-4-5-20251001",
+                "generated_by": self._model,
             },
         }
 
+    def _generate_sections_with_openai(
+        self,
+        title: str,
+        context_text: str,
+        company_name: str,
+        sections: List[str],
+        guidelines: Dict[str, str],
+        user_requirements: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        text_snippet = context_text[:4000] if len(context_text) > 4000 else context_text
+
+        section_guidelines = []
+        for s in sections:
+            guideline_tmpl = guidelines.get(
+                s,
+                f"Professional content for the '{s}' section, specific to this document.",
+            )
+            section_guidelines.append(
+                f"- {s}: {guideline_tmpl.format(company_name=company_name)}"
+            )
+
+        blocks_schema = json.dumps([
+            {"title": s, "content": "...", "subsections": []} for s in sections
+        ])
+
+        prompt = f"""You are a professional consultant at {company_name} writing a formal business document in English.
+
+Generate content for the document titled:
+{title}
+
+CONTEXT:
+{text_snippet}
+
+Write content for these sections. Be specific to this context — no generic filler.
+Use formal consulting English: "CRI has developed...", "The objective of this phase is to...", "{company_name} proposes..."
+
+Return ONLY valid JSON (no explanation, no code blocks), exact format:
+{{
+  "blocks": {blocks_schema}
+}}
+
+Rules:
+- Replace every "..." in "content" with actual text (minimum 100 words per section).
+- "subsections" is a list of {{"title": "Sub-heading", "content": "..."}} for Heading-2 level sub-sections.
+  Leave "subsections" as [] for sections that don't need them.
+
+Section guidelines:
+{chr(10).join(section_guidelines)}"""
+
+        if user_requirements:
+            prompt += f"\n\nADDITIONAL USER REQUIREMENTS/CONSTRAINTS (YOU MUST STRICTLY FOLLOW THESE):\n{user_requirements}\n"
+
+        response = self._client.chat.completions.create(
+            model=self._model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw = response.choices[0].message.content.strip()
+        json_match = re.search(r"\{[\s\S]+\}", raw)
+        if not json_match:
+            raise ValueError(f"OpenAI response is not valid JSON: {raw[:300]}")
+
+        blocks = json.loads(json_match.group())["blocks"]
+
+        proposal_text = "\n\n".join(
+            f"{'='*60}\n{b['title']}\n{'='*60}\n{b['content']}" for b in blocks
+        )
+
+        return {
+            "status": "success",
+            "proposal_text": proposal_text,
+            "blocks": blocks,
+            "metadata": {"generated_by": self._model},
+        }
+
+    def _generate_sections_placeholder(
+        self, sections: List[str], company_name: str,
+    ) -> Dict[str, Any]:
+        blocks = [
+            {
+                "title": s,
+                "content": f"[Auto-generated placeholder for '{s}' — {company_name}, please fill in manually.]",
+                "subsections": [],
+            }
+            for s in sections
+        ]
+        proposal_text = "\n\n".join(
+            f"{'='*60}\n{b['title']}\n{'='*60}\n{b['content']}" for b in blocks
+        )
+        return {
+            "status": "success",
+            "proposal_text": proposal_text,
+            "blocks": blocks,
+            "metadata": {"generated_by": "template"},
+        }
+
     # ------------------------------------------------------------------
-    # Template fallback (ANTHROPIC_API_KEY not set)
+    # Template fallback (OPENAI_API_KEY not set)
     # ------------------------------------------------------------------
 
     def _generate_from_templates(

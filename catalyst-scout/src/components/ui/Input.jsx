@@ -1,7 +1,11 @@
-export default function Input({ className = "", ...props }) {
+export default function Input({ className = "", error = false, ...props }) {
   return (
     <input
-      className={`block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-foreground-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:bg-surface-hover disabled:text-foreground-subtle ${className}`}
+      className={`block w-full h-9 rounded-lg border px-3 text-[13px] text-foreground placeholder:text-foreground-subtle bg-surface transition-colors duration-150 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed ${
+        error
+          ? "border-danger/60 focus:border-danger/60 focus:shadow-[0_0_0_3px_rgba(239,68,68,0.15)]"
+          : "border-border hover:border-foreground-subtle focus:border-accent/50 focus:shadow-[0_0_0_3px_var(--accent-active)]"
+      } ${className}`}
       {...props}
     />
   );

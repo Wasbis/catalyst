@@ -11,14 +11,14 @@ export default function ConfirmDialog({
   message,
   confirmLabel = "Ya, lanjutkan",
   cancelLabel = "Batal",
-  variant = "danger",
+  variant = "danger-solid",
   loading = false,
 }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
       <p className="text-sm text-foreground-muted leading-relaxed">{message}</p>
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="secondary" size="sm" onClick={onClose} disabled={loading}>
+        <Button variant="neutral" size="sm" onClick={onClose} disabled={loading}>
           {cancelLabel}
         </Button>
         <Button

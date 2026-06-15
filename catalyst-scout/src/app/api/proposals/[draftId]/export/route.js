@@ -7,7 +7,7 @@ export async function GET(request, { params }) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  const { draftId } = params;
+  const { draftId } = await params;
   const SCRAPER_API_URL = process.env.SCRAPER_API_URL || "http://127.0.0.1:8000";
 
   try {

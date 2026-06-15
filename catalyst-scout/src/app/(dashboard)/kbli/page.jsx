@@ -13,41 +13,41 @@ export default async function KbliPage() {
   const kblis = await getKbli();
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <h2 style={{ fontSize: 17, fontWeight: 800, margin: 0 }}>Master KBLI</h2>
-          <p style={{ fontSize: 13, color: "var(--foreground-muted)", margin: "4px 0 0" }}>{kblis.length} kode KBLI terdaftar</p>
-        </div>
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="shrink-0">
+        <h2 className="m-0 text-base font-medium text-foreground">Master KBLI</h2>
+        <p className="mt-1 text-[13px] text-foreground-muted">{kblis.length} kode KBLI terdaftar</p>
       </div>
 
-      {/* PDF Import Flow component */}
-      <PdfImportFlow />
+      <div className="shrink-0">
+        <PdfImportFlow />
+      </div>
 
-
-      {/* Table */}
-      <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
-        <table className="kbli-table">
-          <thead>
-            <tr>
-              <th>Kode KBLI</th>
-              <th>Deskripsi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {kblis.length === 0 ? (
-              <tr><td colSpan={2} style={{ textAlign: "center", color: "var(--foreground-subtle)", padding: 32 }}>Belum ada data KBLI. Jalankan seed terlebih dahulu.</td></tr>
-            ) : (
-              kblis.map((k) => (
-                <tr key={k.id ?? k.kbliCode}>
-                  <td><span className="kbli-code">{k.kbliCode}</span></td>
-                  <td className="kbli-desc-cell">{k.description}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      <div className="flex-1 min-h-0 overflow-y-auto rounded-[14px] border border-border bg-surface">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="sticky top-0 z-10 border-b border-border bg-surface text-xs font-medium uppercase tracking-wide text-foreground-subtle">
+                <th className="px-4 py-3 font-medium">Kode KBLI</th>
+                <th className="px-4 py-3 font-medium">Deskripsi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kblis.length === 0 ? (
+                <tr><td colSpan={2} className="px-4 py-8 text-center text-foreground-subtle">Belum ada data KBLI. Jalankan seed terlebih dahulu.</td></tr>
+              ) : (
+                kblis.map((k) => (
+                  <tr key={k.id ?? k.kbliCode} className="border-b border-border last:border-0 hover:bg-surface-hover">
+                    <td className="px-4 py-3 align-top">
+                      <span className="rounded-[5px] bg-accent-soft px-2 py-0.5 font-mono text-[12.5px] font-medium text-accent">{k.kbliCode}</span>
+                    </td>
+                    <td className="max-w-120 px-4 py-3 align-top text-foreground">{k.description}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

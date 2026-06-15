@@ -7,8 +7,13 @@ import { useToast } from "@/components/ui/ToastProvider";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { VALID_PHASE_STATUSES, PHASE_STATUS_LABELS } from "@/lib/projectStatus";
 import ChecklistPanel from "@/components/projects/ChecklistPanel";
+import Badge from "@/components/ui/Badge";
+import Input from "@/components/ui/Input";
+import Label from "@/components/ui/Label";
+import Select from "@/components/ui/Select";
+import Button from "@/components/ui/Button";
 
-export default function ProjectPhaseList({ projectId, phases }) {
+export default function ProjectPhaseList({ projectId, phases, project, activeDocumentTypes = [] }) {
   const router = useRouter();
   const { addToast } = useToast();
   const [pending, setPending] = useState(false);
@@ -40,47 +45,43 @@ export default function ProjectPhaseList({ projectId, phases }) {
   }
 
   return (
-    <div className="panel">
-      <div className="panel-head">
-        <h3>Fase / Siklus Pencairan (CTR)</h3>
-        <button className="btn btn-secondary btn-sm" onClick={() => setFormOpen((v) => !v)}>
+    <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+      <div className="mb-3.5 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-foreground">Fase / Siklus Pencairan (CTR)</h3>
+        <Button variant="neutral" size="sm" onClick={() => setFormOpen((v) => !v)}>
           {formOpen ? "Tutup" : "Tambah Fase"}
-        </button>
+        </Button>
       </div>
 
       {phases.length === 0 ? (
-        <p style={{ fontSize: 13, color: "var(--foreground-subtle)" }}>Belum ada fase yang dicatat.</p>
+        <p className="text-[13px] text-foreground-subtle">Belum ada fase yang dicatat.</p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {phases.map((phase) => (
-            <div key={phase.id} style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <span style={{ fontWeight: 700, fontSize: 13.5 }}>{phase.label}</span>
-                <div className="select-wrap" style={{ width: 130 }}>
-                  <select
-                    className="input select"
-                    style={{ fontSize: 12, padding: "4px 26px 4px 10px" }}
-                    value={phase.status}
-                    onChange={(e) => handleStatusChange(phase, e.target.value)}
-                  >
-                    {VALID_PHASE_STATUSES.map((s) => <option key={s} value={s}>{PHASE_STATUS_LABELS[s]}</option>)}
-                  </select>
-                  <svg className="select-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                </div>
+            <div key={phase.id} className="flex flex-col gap-2 rounded-[10px] border border-border px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[13.5px] font-medium text-foreground">{phase.label}</span>
+                <Select
+                  value={phase.status}
+                  onChange={(e) => handleStatusChange(phase, e.target.value)}
+                  className="h-7.5 w-32.5 text-xs"
+                >
+                  {VALID_PHASE_STATUSES.map((s) => <option key={s} value={s}>{PHASE_STATUS_LABELS[s]}</option>)}
+                </Select>
               </div>
 
-              <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--foreground-muted)", flexWrap: "wrap" }}>
+              <div className="flex flex-wrap gap-4 text-xs text-foreground-muted">
                 <span>Periode: {formatDate(phase.startDate)} – {formatDate(phase.endDate)}</span>
                 <span>
                   Pencairan: {phase.disbursementAmount != null ? formatCurrency(phase.disbursementAmount) : "—"}
                   {phase.disbursementStatus ? ` (${phase.disbursementStatus})` : ""}
                 </span>
-                {phase.dataCompleteness === "summary" && <span className="badge badge-amber">Data Ringkasan</span>}
+                {phase.dataCompleteness === "summary" && <Badge variant="tinjau">Data Ringkasan</Badge>}
               </div>
 
               <button
                 onClick={() => setExpandedId((id) => id === phase.id ? null : phase.id)}
-                style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)", border: "none", background: "transparent", cursor: "pointer", textAlign: "left", padding: 0 }}
+                className="cursor-pointer self-start border-0 bg-transparent p-0 text-left text-xs font-medium text-accent"
               >
                 {expandedId === phase.id ? "Tutup checklist fase" : `Checklist fase (${phase.checklistItems?.length ?? 0})`}
               </button>
@@ -91,6 +92,9 @@ export default function ProjectPhaseList({ projectId, phases }) {
                   phaseId={phase.id}
                   items={phase.checklistItems ?? []}
                   title={`Checklist — ${phase.label}`}
+                  project={project}
+                  phase={phase}
+                  activeDocumentTypes={activeDocumentTypes}
                 />
               )}
             </div>
@@ -99,35 +103,35 @@ export default function ProjectPhaseList({ projectId, phases }) {
       )}
 
       {formOpen && (
-        <form onSubmit={handleAdd} className="form-grid" style={{ marginTop: 12 }}>
-          <div className="field">
-            <label className="field-label">Label Fase *</label>
-            <input name="label" required className="input" placeholder="CTR-1" />
+        <form onSubmit={handleAdd} className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="phase-label">Label Fase *</Label>
+            <Input id="phase-label" name="label" required placeholder="CTR-1" />
           </div>
-          <div className="field">
-            <label className="field-label">Urutan</label>
-            <input name="sequence" type="number" className="input" placeholder="1" />
+          <div>
+            <Label htmlFor="phase-sequence">Urutan</Label>
+            <Input id="phase-sequence" name="sequence" type="number" placeholder="1" />
           </div>
-          <div className="field">
-            <label className="field-label">Mulai</label>
-            <input name="startDate" type="date" className="input" />
+          <div>
+            <Label htmlFor="phase-start">Mulai</Label>
+            <Input id="phase-start" name="startDate" type="date" />
           </div>
-          <div className="field">
-            <label className="field-label">Selesai</label>
-            <input name="endDate" type="date" className="input" />
+          <div>
+            <Label htmlFor="phase-end">Selesai</Label>
+            <Input id="phase-end" name="endDate" type="date" />
           </div>
-          <div className="field">
-            <label className="field-label">Nominal Pencairan (Rp)</label>
-            <input name="disbursementAmount" type="number" min="0" className="input" />
+          <div>
+            <Label htmlFor="phase-amount">Nominal Pencairan (Rp)</Label>
+            <Input id="phase-amount" name="disbursementAmount" type="number" min="0" />
           </div>
-          <div className="field">
-            <label className="field-label">Status Pencairan</label>
-            <input name="disbursementStatus" className="input" placeholder="belum_cair / proses / cair" />
+          <div>
+            <Label htmlFor="phase-disb-status">Status Pencairan</Label>
+            <Input id="phase-disb-status" name="disbursementStatus" placeholder="belum_cair / proses / cair" />
           </div>
-          <div className="field span-2" style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button type="submit" disabled={pending} className="btn btn-primary btn-md">
-              {pending ? "Menyimpan…" : "Simpan Fase"}
-            </button>
+          <div className="flex justify-end sm:col-span-2">
+            <Button type="submit" loading={pending}>
+              Simpan Fase
+            </Button>
           </div>
         </form>
       )}

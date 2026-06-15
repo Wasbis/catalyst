@@ -68,3 +68,15 @@ prd.md
 prd2.md
 prdv2.md
 crikbli.pdf
+
+# Document Management Hub (Fase 2) — file upload disimpan lokal, jangan dicommit
+catalyst-scout/public/uploads/
+
+# HR Module (Fase 3) — dokumen pribadi karyawan (PII), jangan dicommit
+catalyst-scout/storage/
+
+# scraper-engine testing artifacts (debug/output junk)
+scraper-engine/testing/_poc_*.docx
+scraper-engine/testing/*_debug_*.json
+scraper-engine/testing/hasil_*.json
+scraper-engine/testing/test_output_*.json

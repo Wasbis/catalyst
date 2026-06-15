@@ -1,6 +1,5 @@
-import { getTenders, getTenderStats } from "@/actions/tenderActions";
+import { getTenders } from "@/actions/tenderActions";
 import { toJSONSafe } from "@/lib/serialize";
-import StatsRow from "@/components/tenders/StatsRow";
 import ScrapeStatusBar from "@/components/tenders/ScrapeStatusBar";
 import TenderTable from "@/components/tenders/TenderTable";
 import KanbanBoard from "@/components/tenders/KanbanBoard";
@@ -13,39 +12,44 @@ export default async function TendersPage({ searchParams }) {
   const { source, status, minScore, keyword, page, view } = sp;
   const isKanban = view === "kanban";
 
-  const [result, stats] = await Promise.all([
-    getTenders({
-      source: source || undefined,
-      status: status || undefined,
-      minScore: minScore ? Number(minScore) : undefined,
-      keyword: keyword || undefined,
-      page: isKanban ? 1 : (page ? Number(page) : 1),
-      pageSize: isKanban ? 500 : 20,
-    }),
-    getTenderStats(),
-  ]);
+  const result = await getTenders({
+    source: source || undefined,
+    status: status || undefined,
+    minScore: minScore ? Number(minScore) : undefined,
+    keyword: keyword || undefined,
+    page: isKanban ? 1 : (page ? Number(page) : 1),
+    pageSize: isKanban ? 500 : 20,
+  });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Stats */}
-      <StatsRow stats={stats} />
-
-      {/* Scrape status bar */}
-      <ScrapeStatusBar />
-
-      {/* Toolbar: list/kanban toggle + filters + input manual */}
-      <TendersToolbar currentView={view ?? "list"} searchParams={sp} totalCount={result.total} />
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+      {/* Scrape status bar (hanya tampil saat ada aktivitas) */}
+      <div className="shrink-0">
+        <ScrapeStatusBar />
+      </div>
 
       {/* Content */}
       {isKanban ? (
-        <KanbanBoard initialTenders={toJSONSafe(result.data)} />
+        <KanbanBoard
+          initialTenders={toJSONSafe(result.data)}
+          currentView={view ?? "list"}
+          searchParams={sp}
+          totalCount={result.total}
+        />
       ) : (
         <>
-          <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
-            <TenderTable data={result.data} />
+          <div className="shrink-0">
+            <TendersToolbar currentView={view ?? "list"} searchParams={sp} totalCount={result.total} />
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden rounded-[14px] border border-border bg-surface">
+            <div className="h-full overflow-y-auto">
+              <TenderTable data={toJSONSafe(result.data)} />
+            </div>
           </div>
           {result.totalPages > 1 && (
-            <PaginationBar page={result.page} totalPages={result.totalPages} searchParams={sp} />
+            <div className="shrink-0">
+              <PaginationBar page={result.page} totalPages={result.totalPages} searchParams={sp} />
+            </div>
           )}
         </>
       )}
@@ -61,18 +65,19 @@ function PaginationBar({ page, totalPages, searchParams }) {
     return `/tenders?${params.toString()}`;
   };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", paddingTop: 8 }}>
+    <div className="flex items-center justify-center gap-1.5 pt-2">
       {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-        <a key={p} href={makeHref(p)}
-          style={{
-            display: "inline-grid", placeItems: "center",
-            width: 34, height: 34, borderRadius: 9,
-            fontSize: 13, fontWeight: 700, textDecoration: "none",
-            background: p === page ? "var(--accent)" : "var(--surface)",
-            color: p === page ? "#fff" : "var(--foreground-muted)",
-            border: `1px solid ${p === page ? "var(--accent)" : "var(--border)"}`,
-          }}
-        >{p}</a>
+        <a
+          key={p}
+          href={makeHref(p)}
+          className={`inline-grid h-8.5 w-8.5 place-items-center rounded-[9px] border text-[13px] font-medium no-underline transition-colors duration-120 ease-out ${
+            p === page
+              ? "border-accent bg-accent text-white"
+              : "border-border bg-surface text-foreground-muted hover:border-foreground-subtle hover:text-foreground"
+          }`}
+        >
+          {p}
+        </a>
       ))}
     </div>
   );

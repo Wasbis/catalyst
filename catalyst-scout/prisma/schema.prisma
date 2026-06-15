@@ -13,13 +13,46 @@ datasource db {
 // ==========================================================================
 
 model User {
-  id            String         @id @default(uuid())
+  id            String           @id @default(uuid())
   name          String
-  email         String         @unique
+  username      String           @unique
+  email         String           @unique
   passwordHash  String
-  role          String         @default("engineer") // 'admin' | 'engineer' | 'manager'
-  createdAt     DateTime       @default(now())
+  role          String           @default("engineer") // 'admin' | 'engineer' | 'manager'
+  createdAt     DateTime         @default(now())
   notifications Notification[]
+  documents     DocumentRecord[]
+  comments      Comment[]
+  auditLogs     AuditLog[]
+}
+
+// ==========================================================================
+// COMMENTS — generic comment thread (Tender, Direct Appointment, Proposal Block)
+// ==========================================================================
+
+model Comment {
+  id         String        @id @default(uuid())
+  entityType String        @map("entity_type") @db.VarChar(30) // "tender_result" | "project_lead" | "proposal_block"
+  entityId   String        @map("entity_id")
+  content    String        @db.Text
+  authorId   String        @map("author_id")
+  author     User          @relation(fields: [authorId], references: [id])
+  createdAt  DateTime      @default(now()) @map("created_at")
+  editedAt   DateTime?     @map("edited_at")
+  edits      CommentEdit[]
+
+  @@index([entityType, entityId])
+  @@map("comments")
+}
+
+model CommentEdit {
+  id              String   @id @default(uuid())
+  commentId       String   @map("comment_id")
+  comment         Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  previousContent String   @map("previous_content") @db.Text
+  editedAt        DateTime @default(now()) @map("edited_at")
+
+  @@map("comment_edits")
 }
 
 // ==========================================================================
@@ -30,7 +63,7 @@ model MasterKbli {
   id          Int      @id @default(autoincrement())
   kbliCode    String   @unique
   description String   @db.Text
-  category    String?  // Kelompok besar KBLI, opsional
+  category    String? // Kelompok besar KBLI, opsional
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
@@ -41,10 +74,10 @@ model MasterKbli {
 model DataMasking {
   id          String   @id @default(uuid())
   keyword     String   @unique @db.Text // Kata sensitif: "GeoDipa", "Habil", dll.
-  replacement String   @db.Text         // Pengganti: "[CLIENT_A]", "[ENGINEER_NAME]"
-  category    String                    // 'client' | 'internal_name' | 'project_name'
-  isRegex     Boolean  @default(false)  // true = keyword adalah pola regex
-  isActive    Boolean  @default(true)   // false = nonaktifkan tanpa hapus data
+  replacement String   @db.Text // Pengganti: "[CLIENT_A]", "[ENGINEER_NAME]"
+  category    String // 'client' | 'internal_name' | 'project_name'
+  isRegex     Boolean  @default(false) // true = keyword adalah pola regex
+  isActive    Boolean  @default(true) // false = nonaktifkan tanpa hapus data
   createdAt   DateTime @default(now())
 
   @@index([isActive])
@@ -56,17 +89,17 @@ model DataMasking {
 // ==========================================================================
 
 model ScraperSetting {
-  id           Int       @id @default(autoincrement())
-  targetName   String    // "GeoDipa" | "CIVD" | "GEP"
-  targetUrl    String    @db.Text
-  cronSchedule String    // "0 9 * * *"
-  isActive     Boolean   @default(true)
+  id           Int     @id @default(autoincrement())
+  targetName   String // "GeoDipa" | "CIVD" | "GEP"
+  targetUrl    String  @db.Text
+  cronSchedule String // "0 9 * * *"
+  isActive     Boolean @default(true)
 
   // Tracking run terakhir — diisi oleh background task
-  lastRunAt    DateTime?
-  lastCount    Int?      // Jumlah tender baru di run terakhir
-  lastError    String?   @db.Text // Pesan error terakhir, null = sukses
-  updatedAt    DateTime  @updatedAt
+  lastRunAt DateTime?
+  lastCount Int? // Jumlah tender baru di run terakhir
+  lastError String?   @db.Text // Pesan error terakhir, null = sukses
+  updatedAt DateTime  @updatedAt
 }
 
 // Generic Key-Value Settings for Application Configuration
@@ -130,8 +163,8 @@ model TenderResult {
   status String @db.VarChar(20)
 
   notes              String?
-  convertedToProject Boolean @map("converted_to_project") // true = sudah dikonversi ke Project
-  projectId          Int?    @map("project_id")
+  convertedToProject Boolean  @map("converted_to_project") // true = sudah dikonversi ke Project
+  projectId          Int?     @map("project_id")
   project            Project? @relation(fields: [projectId], references: [id])
 
   // Lampiran & metadata khusus per platform (mis. CIVD: announcement_type, golongan_usaha, dll)
@@ -145,7 +178,7 @@ model TenderResult {
   scrapingJobId Int?         @map("scraping_job_id")
   scrapingJob   ScrapingJob? @relation(fields: [scrapingJobId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  proposalDrafts ProposalDraft[]
+  generatedDocuments GeneratedDocument[]
 
   @@index([source])
   @@map("tender_results")
@@ -157,23 +190,23 @@ model TenderResult {
 
 // Project aktif — hasil konversi dari TenderResult (Menang) atau ProjectLead (Quotation)
 model Project {
-  id             Int           @id @default(autoincrement())
-  name           String
-  sourceType     String        @map("source_type") @db.VarChar(20) // "tender" | "non_tender"
+  id         Int    @id @default(autoincrement())
+  name       String
+  sourceType String @map("source_type") @db.VarChar(20) // "tender" | "non_tender"
 
-  tenderResults  TenderResult[]
+  tenderResults TenderResult[]
 
-  client         String
-  status         String        @db.VarChar(20) // Approval | KickOff | POSOIssued | Pelaksanaan | Invoicing | Closed
-  poSoNumber     String?       @map("po_so_number")
-  poSoDate       DateTime?     @map("po_so_date") @db.Date
+  client     String
+  status     String    @db.VarChar(20) // Approval | KickOff | POSOIssued | Pelaksanaan | Invoicing | Closed
+  poSoNumber String?   @map("po_so_number")
+  poSoDate   DateTime? @map("po_so_date") @db.Date
 
   // Placeholder utk Fase 4 (integrasi Project App)
   externalProjectId  String? @map("external_project_id")
   externalProjectUrl String? @map("external_project_url")
 
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime?     @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
 
   tasks          ProjectTask[]
   checklistItems ProjectChecklistItem[]
@@ -186,35 +219,35 @@ model Project {
 
 // Todo level admin internal (bukan task eksekusi teknis — itu di Project App)
 model ProjectTask {
-  id        Int       @id @default(autoincrement())
-  projectId Int       @map("project_id")
-  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        Int     @id @default(autoincrement())
+  projectId Int     @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  title     String
-  dueDate   DateTime? @map("due_date") @db.Date
-  assignee  String?
-  status    String    @default("todo") @db.VarChar(20) // todo | in_progress | done
+  title    String
+  dueDate  DateTime? @map("due_date") @db.Date
+  assignee String?
+  status   String    @default("todo") @db.VarChar(20) // todo | in_progress | done
 
-  createdAt DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([projectId])
 }
 
 // Checklist dokumen per kategori (teknis/komersial) — diisi manual, tidak ada template otomatis
 model ProjectChecklistItem {
-  id        Int           @id @default(autoincrement())
-  projectId Int           @map("project_id")
-  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        Int     @id @default(autoincrement())
+  projectId Int     @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  phaseId   Int?          @map("phase_id") // null = checklist level project
-  phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  phaseId Int?          @map("phase_id") // null = checklist level project
+  phase   ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
 
-  category  String        @db.VarChar(20) // "teknis" | "komersial"
-  label     String        // "Surat Kerja", "Timesheet", "BAST", dst
-  status    String        @default("belum") @db.VarChar(20) // belum | sudah | expired
-  fileUrl   String?       @map("file_url")
+  category String  @db.VarChar(20) // "teknis" | "komersial"
+  label    String // "Surat Kerja", "Timesheet", "BAST", dst
+  status   String  @default("belum") @db.VarChar(20) // belum | sudah | expired
+  fileUrl  String? @map("file_url")
 
-  createdAt DateTime      @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([projectId])
   @@index([phaseId])
@@ -222,18 +255,18 @@ model ProjectChecklistItem {
 
 // Siklus pencairan/reporting bertahap (CTR, dst)
 model ProjectPhase {
-  id        Int      @id @default(autoincrement())
-  projectId Int      @map("project_id")
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        Int     @id @default(autoincrement())
+  projectId Int     @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  label     String   // "CTR-1", "CTR-8", dst
-  sequence  Int      // urutan utk sorting
+  label     String // "CTR-1", "CTR-8", dst
+  sequence  Int // urutan utk sorting
   startDate DateTime? @map("start_date") @db.Date
   endDate   DateTime? @map("end_date") @db.Date
-  status    String   @default("planned") @db.VarChar(20) // active | closed | planned
+  status    String    @default("planned") @db.VarChar(20) // active | closed | planned
 
-  disbursementAmount BigInt?  @map("disbursement_amount")
-  disbursementStatus String?  @map("disbursement_status") // belum_cair | proses | cair
+  disbursementAmount BigInt? @map("disbursement_amount")
+  disbursementStatus String? @map("disbursement_status") // belum_cair | proses | cair
 
   // "summary" = data arsip/backfill seadanya, "full" = tracking penuh sejak awal fase
   dataCompleteness String @default("full") @map("data_completeness")
@@ -245,19 +278,19 @@ model ProjectPhase {
 
 // Lead non-tender (Lead -> Proposal -> Quotation -> Converted/Cancelled)
 model ProjectLead {
-  id             Int      @id @default(autoincrement())
+  id             Int     @id @default(autoincrement())
   name           String
   client         String
-  status         String   @default("lead") @db.VarChar(20) // lead | proposal | quotation | converted | cancelled
-  description    String?  @db.Text
-  estimatedValue BigInt?  @map("estimated_value")
-  notes          String?  @db.Text
+  status         String  @default("lead") @db.VarChar(20) // lead | proposal | quotation | converted | cancelled
+  description    String? @db.Text
+  estimatedValue BigInt? @map("estimated_value")
+  notes          String? @db.Text
 
-  projectId      Int?     @map("project_id") // diisi saat convert ke Project
-  project        Project? @relation(fields: [projectId], references: [id])
+  projectId Int?     @map("project_id") // diisi saat convert ke Project
+  project   Project? @relation(fields: [projectId], references: [id])
 
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime? @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
 
   @@index([status])
   @@map("project_leads")
@@ -267,12 +300,18 @@ model ProjectLead {
 // AI PROPOSAL AGENT
 // ==========================================================================
 
-// Template .docx untuk proposal — dikelola scraper-engine (SQLAlchemy), map ke proposal_templates existing
-model ProposalTemplate {
+// Template .docx untuk dokumen (proposal, surat kerja, BAST, dll) — dikelola scraper-engine (SQLAlchemy)
+model DocumentTemplate {
   id       String  @id @default(uuid()) @db.VarChar
   name     String  @db.VarChar(255)
   filePath String  @map("file_path") @db.VarChar(500) // Path ke .docx template
   isActive Boolean @map("is_active")
+
+  // Jenis dokumen: "proposal" | "surat_kerja" | "bast" | "invoice" | "kontrak" | "laporan_ctr"
+  documentType String @default("proposal") @map("document_type") @db.VarChar(30)
+
+  // Heading yang akan di-generate via AI (lihat document-templates/*.md). null/[] = pure data-fill
+  aiSections Json? @map("ai_sections")
 
   createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -280,14 +319,24 @@ model ProposalTemplate {
   proposalType        String? @map("proposal_type") @db.VarChar(100)
   defaultSectionsJson String? @map("default_sections_json")
 
-  proposalDrafts ProposalDraft[]
+  // Methodology 2 (docxtpl/Jinja2 Field Mapper) — lihat document-templates/proposal-generator-strategy-v2.md
+  templateMode     String? @default("section_replace") @map("template_mode") @db.VarChar(20) // "section_replace" | "jinja_template"
+  fieldMappingJson Json?   @map("field_mapping_json") // hasil Template Field Mapper: classification static/data/ai per candidate string
+  taggedFilePath   String? @map("tagged_file_path") @db.VarChar(500) // path .docx hasil "Apply" Field Mapper (sudah berisi tag Jinja2)
 
-  @@map("proposal_templates")
+  generatedDocuments GeneratedDocument[]
+
+  @@map("document_templates")
 }
 
-// Draft proposal hasil generate AI — dikelola scraper-engine (SQLAlchemy), map ke proposal_drafts existing
-model ProposalDraft {
+// Dokumen hasil generate (data-fill dan/atau AI) — dikelola scraper-engine (SQLAlchemy)
+model GeneratedDocument {
   id String @id @default(uuid()) @db.VarChar
+
+  // Jenis dokumen & entity sumber data (mis. "Project"/123, "ProjectPhase"/45, "TenderResult"/1315)
+  documentType String @default("proposal") @map("document_type") @db.VarChar(30)
+  entityType   String @default("TenderResult") @map("entity_type") @db.VarChar(30)
+  entityId     String @map("entity_id")
 
   tenderResultId Int?          @map("tender_result_id")
   tenderResult   TenderResult? @relation(fields: [tenderResultId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -298,41 +347,122 @@ model ProposalDraft {
   companyName     String? @map("company_name") @db.VarChar(255)
 
   templateId String?           @map("template_id") @db.VarChar
-  template   ProposalTemplate? @relation(fields: [templateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  template   DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   status      String  @db.VarChar(20) // 'draft' | 'review' | 'final'
-  generatedBy String? @map("generated_by") @db.VarChar(100) // 'claude-haiku' | 'template'
+  generatedBy String? @map("generated_by") @db.VarChar(100) // model AI yg dipakai | 'template'
 
   // JSON list {phase, activities, duration, notes} dari import Excel timeline
   timelineDataJson String? @map("timeline_data_json")
 
+  // Methodology 2 (docxtpl/Jinja2) — lihat document-templates/proposal-generator-strategy-v2.md
+  proposalReferenceNumber String? @map("proposal_reference_number") @db.VarChar(50) // mis. "CRI2603P100-Rev 00"
+  classification          String? @default("Confidential") @db.VarChar(50)
+
+  clientId Int?    @map("client_id")
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
   createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime? @map("updated_at") @db.Timestamptz(6)
 
-  blocks ProposalBlock[]
+  blocks    DocumentBlock[]
+  revisions ProposalRevision[]
 
   @@index([tenderResultId])
-  @@map("proposal_drafts")
+  @@index([entityType, entityId])
+  @@index([clientId])
+  @@map("generated_documents")
 }
 
-// Satu bagian/section di dalam ProposalDraft — map ke proposal_blocks existing
-model ProposalBlock {
-  id      String @id @default(uuid()) @db.VarChar
-  draftId String @map("draft_id") @db.VarChar
-  draft   ProposalDraft @relation(fields: [draftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+// Klien — sumber data untuk cover/header/footer/proprietary notice/tabel info
+// pada proposal Methodology 2 (docxtpl/Jinja2). Lihat
+// document-templates/proposal-generator-strategy-v2.md §6.
+model Client {
+  id        Int     @id @default(autoincrement())
+  name      String  @db.VarChar(255) // nama tampil, mis. "GOKP"
+  legalName String  @map("legal_name") @db.VarChar(255) // "Genting Oil Kasuri PTE. LTD."
+  shortName String? @map("short_name") @db.VarChar(50) // "GOKPL"
+  address   String? @db.Text
+  picName   String? @map("pic_name") @db.VarChar(255)
+  picTitle  String? @map("pic_title") @db.VarChar(255)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
+
+  generatedDocuments GeneratedDocument[]
+
+  @@index([name])
+  @@map("clients")
+}
+
+// Baris revision table proposal (Rev/Date/Author/Reviewed by/Approved by/Description)
+// — loop {% for rev in revisions %} pada Methodology 2.
+model ProposalRevision {
+  id Int @id @default(autoincrement())
+
+  documentId String            @map("document_id") @db.VarChar
+  document   GeneratedDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  revisionNumber String   @map("revision_number") @db.VarChar(10) // "00", "01", dst
+  date           DateTime @db.Date
+  description    String?  @db.Text
+
+  authorId Int?      @map("author_id")
+  author   Employee? @relation("ProposalRevisionAuthor", fields: [authorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  reviewedById Int?      @map("reviewed_by_id")
+  reviewedBy   Employee? @relation("ProposalRevisionReviewer", fields: [reviewedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  approvedById Int?      @map("approved_by_id")
+  approvedBy   Employee? @relation("ProposalRevisionApprover", fields: [approvedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([documentId])
+  @@map("proposal_revisions")
+}
+
+// Satu bagian/section di dalam GeneratedDocument
+model DocumentBlock {
+  id      String            @id @default(uuid()) @db.VarChar
+  draftId String            @map("draft_id") @db.VarChar
+  draft   GeneratedDocument @relation(fields: [draftId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   title   String // "Latar Belakang" | "Metodologi" | "Jadwal" dll
   content String
-  order   Int    // Urutan blok di dokumen final
+  order   Int // Urutan blok di dokumen final
 
   // JSON list {title, content} sub-section level Heading 2
   subsectionsJson String? @map("subsections_json")
+
+  // Asal konten: "data" (substitusi langsung, 0 token AI) | "ai" (hasil AI) | "manual" (edit user)
+  source String @default("ai") @db.VarChar(10)
 
   isApproved  Boolean @map("is_approved")
   userComment String? @map("user_comment") // Feedback reviewer untuk revisi AI
 
   @@index([draftId])
-  @@map("proposal_blocks")
+  @@map("document_blocks")
+}
+
+// ==========================================================================
+// AUDIT LOG (Fase 5)
+// ==========================================================================
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  user        User?    @relation(fields: [userId], references: [id])
+  action      String   @db.VarChar(20) // create | update | delete | status_change
+  entityType  String   @map("entity_type") @db.VarChar(30)
+  entityId    String   @map("entity_id")
+  changesJson Json?    @map("changes_json")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // ==========================================================================
@@ -351,4 +481,90 @@ model Notification {
 
   @@index([userId])
   @@index([isRead])
+}
+
+// ==========================================================================
+// DOCUMENT MANAGEMENT HUB (Fase 2)
+// ==========================================================================
+
+model DocumentCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(50) // slug, mis. "kontrak", "bast"
+  label     String   @db.VarChar(100)
+  group     String?  @db.VarChar(30) // teknis | komersial | legal | hr
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  documents DocumentRecord[]
+
+  @@index([isActive])
+}
+
+model DocumentRecord {
+  id      Int    @id @default(autoincrement())
+  title   String
+  fileUrl String @map("file_url")
+
+  categoryId Int?              @map("category_id")
+  category   DocumentCategory? @relation(fields: [categoryId], references: [id])
+
+  // Polymorphic — entityType bukan enum Prisma, validasi whitelist di server action
+  entityType String? @map("entity_type") @db.VarChar(30) // "TenderResult" | "Project" | "ProjectPhase" | "ProjectChecklistItem" | "ProjectLead"
+  entityId   Int?    @map("entity_id")
+
+  client      String?
+  tags        String?
+  isReference Boolean @default(false) @map("is_reference")
+
+  uploadedById String? @map("uploaded_by_id")
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([categoryId])
+}
+
+// ==========================================================================
+// HR MODULE (Fase 3)
+// ==========================================================================
+
+model Employee {
+  id       Int     @id @default(autoincrement())
+  name     String
+  position String?
+  isActive Boolean @default(true) @map("is_active")
+
+  // Placeholder utk Area 6 (integrasi admin website) — tidak dipakai Fase 3
+  originApplicantId String? @map("origin_applicant_id")
+  source            String? // "internal" | "admin_website_vacancy" | "admin_website_scholarship"
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  documents EmployeeDocument[]
+
+  // Methodology 2 (docxtpl) — revision table proposal
+  revisionsAsAuthor   ProposalRevision[] @relation("ProposalRevisionAuthor")
+  revisionsAsReviewer ProposalRevision[] @relation("ProposalRevisionReviewer")
+  revisionsAsApprover ProposalRevision[] @relation("ProposalRevisionApprover")
+
+  @@index([isActive])
+}
+
+model EmployeeDocument {
+  id         Int      @id @default(autoincrement())
+  employeeId Int      @map("employee_id")
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  docType    String    @db.VarChar(20) // ktp | bpjs | ijazah | kk | npwp
+  fileUrl    String    @map("file_url")
+  expiryDate DateTime? @map("expiry_date") @db.Date
+  status     String    @db.VarChar(20) // valid | expiring_soon | expired
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime? @updatedAt @map("updated_at")
+
+  @@unique([employeeId, docType])
+  @@index([employeeId])
 }

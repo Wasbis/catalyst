@@ -20,6 +20,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     create_engine,
@@ -232,16 +233,21 @@ class TenderResult(Base):
 
 
 # ---------------------------------------------------------------------------
-# ProposalTemplate
-# Python-managed table. Simpan .docx template yang diupload user.
+# DocumentTemplate
+# Python-managed table. Simpan .docx template (proposal, surat kerja, BAST, dll)
+# yang diupload user.
 # ---------------------------------------------------------------------------
-class ProposalTemplate(Base):
-    __tablename__ = "proposal_templates"
+class DocumentTemplate(Base):
+    __tablename__ = "document_templates"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # Jenis dokumen: "proposal" | "surat_kerja" | "bast" | "invoice" | "kontrak" | "laporan_ctr"
+    document_type = Column(String(30), default="proposal", nullable=False)
+    # JSON list of heading names yang di-generate via AI. null/[] = pure data-fill.
+    ai_sections = Column(JSON, nullable=True)
     # Type of proposal this template is for, e.g. "IT Project", "Engineering Services"
     proposal_type = Column(String(100), nullable=True)
     # JSON list of section heading names to replace for this template type.
@@ -249,66 +255,78 @@ class ProposalTemplate(Base):
     default_sections_json = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    drafts = relationship("ProposalDraft", back_populates="template")
+    # Methodology 2 (docxtpl/Jinja2 Field Mapper) — lihat
+    # document-templates/proposal-generator-strategy-v2.md
+    template_mode = Column(String(20), default="section_replace", nullable=True)
+    field_mapping_json = Column(JSON, nullable=True)
+    tagged_file_path = Column(String(500), nullable=True)
+
+    documents = relationship("GeneratedDocument", back_populates="template")
 
     def __repr__(self) -> str:
-        return f"<ProposalTemplate '{self.name}' type={self.proposal_type}>"
+        return f"<DocumentTemplate '{self.name}' type={self.document_type}>"
 
 
 # ---------------------------------------------------------------------------
-# ProposalDraft
-# Draft proposal hasil generate AI, linked ke TenderResult.
+# GeneratedDocument
+# Dokumen hasil generate (data-fill dan/atau AI), linked ke entity sumber data
+# (TenderResult, Project, ProjectPhase, dll).
 # ---------------------------------------------------------------------------
-class ProposalDraft(Base):
-    __tablename__ = "proposal_drafts"
+class GeneratedDocument(Base):
+    __tablename__ = "generated_documents"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    document_type = Column(String(30), default="proposal", nullable=False)
+    entity_type = Column(String(30), default="TenderResult", nullable=False)
+    entity_id = Column(String, nullable=False)
     tender_result_id = Column(Integer, ForeignKey("tender_results.id"), nullable=True, index=True)
     tender_title = Column(Text, nullable=False)
     kbli_code = Column(String(20), nullable=True)
     kbli_description = Column(Text, nullable=True)
     company_name = Column(String(255), nullable=True)
-    template_id = Column(String, ForeignKey("proposal_templates.id"), nullable=True)
+    template_id = Column(String, ForeignKey("document_templates.id"), nullable=True)
     status = Column(String(20), default="draft", nullable=False)  # draft | review | final
-    generated_by = Column(String(100), nullable=True)  # claude-haiku | template
+    generated_by = Column(String(100), nullable=True)  # nama model AI | template
     # JSON list of {phase, activities, duration, notes} imported from Excel timeline
     timeline_data_json = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
     blocks = relationship(
-        "ProposalBlock",
+        "DocumentBlock",
         back_populates="draft",
-        order_by="ProposalBlock.order",
+        order_by="DocumentBlock.order",
         cascade="all, delete-orphan",
     )
-    template = relationship("ProposalTemplate", back_populates="drafts")
+    template = relationship("DocumentTemplate", back_populates="documents")
 
     def __repr__(self) -> str:
-        return f"<ProposalDraft '{self.tender_title[:40]}' {self.status}>"
+        return f"<GeneratedDocument '{self.tender_title[:40]}' {self.status}>"
 
 
 # ---------------------------------------------------------------------------
-# ProposalBlock
-# Satu bagian/section di dalam ProposalDraft. User bisa edit per-block.
+# DocumentBlock
+# Satu bagian/section di dalam GeneratedDocument. User bisa edit per-block.
 # ---------------------------------------------------------------------------
-class ProposalBlock(Base):
-    __tablename__ = "proposal_blocks"
+class DocumentBlock(Base):
+    __tablename__ = "document_blocks"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    draft_id = Column(String, ForeignKey("proposal_drafts.id"), nullable=False, index=True)
+    draft_id = Column(String, ForeignKey("generated_documents.id"), nullable=False, index=True)
     title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
     # JSON list of {title, content} sub-sections (Heading 2 level)
     subsections_json = Column(Text, nullable=True)
     order = Column(Integer, nullable=False)
+    # Asal konten: "data" (substitusi langsung) | "ai" (hasil AI) | "manual" (edit user)
+    source = Column(String(10), default="ai", nullable=False)
     is_approved = Column(Boolean, default=False, nullable=False)
     user_comment = Column(Text, nullable=True)
 
-    draft = relationship("ProposalDraft", back_populates="blocks")
+    draft = relationship("GeneratedDocument", back_populates="blocks")
 
     def __repr__(self) -> str:
-        return f"<ProposalBlock '{self.title}' order={self.order}>"
+        return f"<DocumentBlock '{self.title}' order={self.order}>"
 
 
 # ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ function PageLink({ href, disabled, children }) {
   return (
     <Link
       href={href}
-      className="rounded-lg px-3 py-1.5 text-sm font-medium text-foreground hover:bg-surface-hover"
+      className="rounded-lg px-3 py-1.5 text-sm font-medium text-foreground hover:bg-surface-hover transition-colors duration-120 ease-out active:scale-[0.97]"
     >
       {children}
     </Link>

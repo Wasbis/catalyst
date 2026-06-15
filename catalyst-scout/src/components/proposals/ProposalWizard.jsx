@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import ProposalSetup from "./ProposalSetup";
 import ProposalEditor from "./ProposalEditor";
 import { generateProposalDraft } from "@/actions/aiActions";
+import Button from "@/components/ui/Button";
 
 export default function ProposalWizard({ tenderResultId, initialDraftId }) {
   const router = useRouter();
@@ -36,10 +37,10 @@ export default function ProposalWizard({ tenderResultId, initialDraftId }) {
   if (draftId) {
     return (
       <div>
-        <div className="flex justify-end mb-4">
-          <button onClick={handleReset} className="btn btn-sm bg-white text-danger border border-danger hover:bg-red-50">
+        <div className="mb-4 flex justify-end">
+          <Button onClick={handleReset} variant="danger" size="sm">
             Mulai Ulang (Generate Baru)
-          </button>
+          </Button>
         </div>
         <ProposalEditor draftId={draftId} />
       </div>

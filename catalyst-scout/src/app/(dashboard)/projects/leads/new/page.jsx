@@ -1,12 +1,12 @@
 import Link from "next/link";
 import LeadForm from "@/components/projects/leads/LeadForm";
 
-export const metadata = { title: "Lead Baru — Project Maker by Catalyst" };
+export const metadata = { title: "Direct Appointment Baru — Project Maker by Catalyst" };
 
 export default function NewProjectLeadPage() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 760 }}>
-      <Link href="/projects/leads" style={{ fontSize: 12.5, color: "var(--foreground-muted)", textDecoration: "none" }}>← Leads</Link>
+    <div className="flex h-full max-w-190 flex-col gap-4 overflow-y-auto">
+      <Link href="/projects/leads" className="text-[12.5px] text-foreground-muted no-underline hover:text-foreground">← Direct Appointment</Link>
       <LeadForm />
     </div>
   );

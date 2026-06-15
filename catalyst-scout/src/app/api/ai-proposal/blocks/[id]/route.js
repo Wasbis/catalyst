@@ -8,7 +8,7 @@ export async function PUT(request, { params }) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const blockId = params.id;
+  const { id: blockId } = await params;
   const body = await request.json().catch(() => ({}));
 
   try {

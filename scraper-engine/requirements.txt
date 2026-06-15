@@ -10,6 +10,7 @@ sentence-transformers
 numpy
 pdfplumber
 python-docx
+docxtpl
 python-multipart
-anthropic
+openai
 openpyxl

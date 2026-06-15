@@ -2,15 +2,20 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
 import { createProjectTask, updateProjectTaskStatus, deleteProjectTask } from "@/actions/projectActions";
 import { useToast } from "@/components/ui/ToastProvider";
 import { formatDate } from "@/lib/formatters";
 import { VALID_TASK_STATUSES, TASK_STATUS_LABELS } from "@/lib/projectStatus";
+import Badge from "@/components/ui/Badge";
+import Input from "@/components/ui/Input";
+import Label from "@/components/ui/Label";
+import Button from "@/components/ui/Button";
 
 const TASK_STATUS_BADGE = {
-  todo: "badge-slate",
-  in_progress: "badge-blue",
-  done: "badge-green",
+  todo: "neutral",
+  in_progress: "info",
+  done: "active",
 };
 
 export default function ProjectTaskList({ projectId, tasks }) {
@@ -52,35 +57,34 @@ export default function ProjectTaskList({ projectId, tasks }) {
   }
 
   return (
-    <div className="panel">
-      <div className="panel-head"><h3>Tugas Admin</h3></div>
+    <div className="rounded-[14px] border border-border bg-surface px-5 py-4.5">
+      <div className="mb-3.5"><h3 className="text-sm font-medium text-foreground">Tugas Admin</h3></div>
 
       {tasks.length === 0 ? (
-        <p style={{ fontSize: 13, color: "var(--foreground-subtle)" }}>Belum ada tugas.</p>
+        <p className="text-[13px] text-foreground-subtle">Belum ada tugas.</p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {tasks.map((task) => (
-            <div key={task.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 10, border: "1px solid var(--border)" }}>
+            <div key={task.id} className="flex items-center justify-between rounded-[10px] border border-border px-3 py-2">
               <div>
-                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{task.title}</div>
-                <div style={{ fontSize: 11.5, color: "var(--foreground-muted)" }}>
+                <div className="text-[13.5px] font-medium text-foreground">{task.title}</div>
+                <div className="text-[11.5px] text-foreground-muted">
                   {task.assignee && `${task.assignee} · `}
                   {task.dueDate ? `Tenggat ${formatDate(task.dueDate)}` : "Tanpa tenggat"}
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button
-                  onClick={() => handleCycleStatus(task)}
-                  className={`badge ${TASK_STATUS_BADGE[task.status] ?? "badge-slate"}`}
-                  style={{ border: "none", cursor: "pointer" }}
-                  title="Klik untuk ubah status"
-                >
-                  {TASK_STATUS_LABELS[task.status] ?? task.status}
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleCycleStatus(task)} title="Klik untuk ubah status" className="cursor-pointer">
+                  <Badge variant={TASK_STATUS_BADGE[task.status] ?? "neutral"}>
+                    {TASK_STATUS_LABELS[task.status] ?? task.status}
+                  </Badge>
                 </button>
-                <button onClick={() => handleDelete(task)} className="icon-btn" style={{ width: 26, height: 26 }} aria-label="Hapus tugas">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6h16z" />
-                  </svg>
+                <button
+                  onClick={() => handleDelete(task)}
+                  className="flex h-6.5 w-6.5 items-center justify-center rounded text-foreground-muted hover:bg-surface-hover hover:text-foreground cursor-pointer"
+                  aria-label="Hapus tugas"
+                >
+                  <Trash2 className="h-3.25 w-3.25" />
                 </button>
               </div>
             </div>
@@ -88,22 +92,22 @@ export default function ProjectTaskList({ projectId, tasks }) {
         </div>
       )}
 
-      <form onSubmit={handleAdd} style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-        <div className="field" style={{ flex: 1, minWidth: 180 }}>
-          <label className="field-label">Judul Tugas</label>
-          <input name="title" required className="input" placeholder="Mis. Siapkan dokumen BAST" />
+      <form onSubmit={handleAdd} className="mt-3 flex flex-wrap items-end gap-2">
+        <div className="min-w-45 flex-1">
+          <Label htmlFor="task-title">Judul Tugas</Label>
+          <Input id="task-title" name="title" required placeholder="Mis. Siapkan dokumen BAST" />
         </div>
-        <div className="field" style={{ width: 160 }}>
-          <label className="field-label">PIC</label>
-          <input name="assignee" className="input" placeholder="Nama" />
+        <div className="w-40">
+          <Label htmlFor="task-assignee">PIC</Label>
+          <Input id="task-assignee" name="assignee" placeholder="Nama" />
         </div>
-        <div className="field" style={{ width: 160 }}>
-          <label className="field-label">Tenggat</label>
-          <input name="dueDate" type="date" className="input" />
+        <div className="w-40">
+          <Label htmlFor="task-due">Tenggat</Label>
+          <Input id="task-due" name="dueDate" type="date" />
         </div>
-        <button type="submit" disabled={pending} className="btn btn-primary btn-md">
-          {pending ? "Menyimpan…" : "Tambah"}
-        </button>
+        <Button type="submit" loading={pending}>
+          Tambah
+        </Button>
       </form>
     </div>
   );

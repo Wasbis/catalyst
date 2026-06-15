@@ -9,29 +9,40 @@ export const metadata = { title: "Projects — Project Maker by Catalyst" };
 
 export default async function ProjectsPage({ searchParams }) {
   const sp = await searchParams;
-  const { sourceType, status, keyword, page, view } = sp;
+  const { sourceType, status, client, keyword, page, view } = sp;
   const isKanban = view === "kanban";
 
   const result = await getProjects({
     sourceType: sourceType || undefined,
     status: status || undefined,
+    client: client || undefined,
     keyword: keyword || undefined,
     page: isKanban ? 1 : (page ? Number(page) : 1),
     pageSize: isKanban ? 500 : 20,
   });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <ProjectsToolbar currentView={view ?? "list"} searchParams={sp} totalCount={result.total} />
-
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       {isKanban ? (
-        <ProjectKanbanBoard initialProjects={toJSONSafe(result.data)} />
+        <ProjectKanbanBoard
+          initialProjects={toJSONSafe(result.data)}
+          currentView={view ?? "list"}
+          searchParams={sp}
+          totalCount={result.total}
+        />
       ) : (
         <>
-          <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
-            <ProjectTable data={result.data} />
+          <div className="shrink-0">
+            <ProjectsToolbar currentView={view ?? "list"} searchParams={sp} totalCount={result.total} />
           </div>
-          <Pagination page={result.page} totalPages={result.totalPages} searchParams={sp} />
+          <div className="flex-1 min-h-0 overflow-hidden rounded-[14px] border border-border bg-surface">
+            <div className="h-full overflow-y-auto">
+              <ProjectTable data={result.data} sticky />
+            </div>
+          </div>
+          <div className="shrink-0">
+            <Pagination page={result.page} totalPages={result.totalPages} searchParams={sp} />
+          </div>
         </>
       )}
     </div>

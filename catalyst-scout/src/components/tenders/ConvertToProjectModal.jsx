@@ -1,30 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createProjectFromTender } from "@/actions/projectActions";
 import { useToast } from "@/components/ui/ToastProvider";
+import Card, { CardTitle } from "@/components/ui/Card";
+import Label from "@/components/ui/Label";
+import Input from "@/components/ui/Input";
+import Button from "@/components/ui/Button";
 
 export default function ConvertToProjectModal({ tender }) {
   const router = useRouter();
   const { addToast } = useToast();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
-
-  if (tender.convertedToProject && tender.projectId) {
-    return (
-      <div className="panel action-panel" style={{ borderColor: "var(--stage-menang)" }}>
-        <div className="panel-head"><h3>Proyek</h3></div>
-        <p style={{ fontSize: 12.5, color: "var(--foreground-muted)", marginBottom: 12 }}>
-          Tender ini sudah dikonversi menjadi Proyek.
-        </p>
-        <Link href={`/projects/${tender.projectId}`} className="btn btn-secondary btn-md full">
-          Lihat Proyek
-        </Link>
-      </div>
-    );
-  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -41,41 +30,41 @@ export default function ConvertToProjectModal({ tender }) {
   }
 
   return (
-    <div className="panel action-panel">
-      <div className="panel-head"><h3>🏆 Tender Menang</h3></div>
-      <p style={{ fontSize: 12.5, color: "var(--foreground-muted)", marginBottom: 12 }}>
-        Tender ini berstatus <strong>Menang</strong>. Konversikan ke Proyek untuk memulai tahap pelaksanaan.
+    <Card>
+      <CardTitle>🏆 Tender Menang</CardTitle>
+      <p className="mt-2 mb-3 text-xs text-foreground-muted">
+        Tender ini berstatus <span className="font-medium text-foreground">Menang</span>. Konversikan ke Proyek untuk memulai tahap pelaksanaan.
       </p>
       {!open ? (
-        <button className="btn btn-primary btn-md full" onClick={() => setOpen(true)}>
+        <Button className="w-full" onClick={() => setOpen(true)}>
           Konversi ke Proyek
-        </button>
+        </Button>
       ) : (
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div className="field">
-            <label className="field-label">Nama Proyek</label>
-            <input name="name" defaultValue={tender.title} className="input" />
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <Label>Nama Proyek</Label>
+            <Input name="name" defaultValue={tender.title} />
           </div>
-          <div className="field">
-            <label className="field-label">Client</label>
-            <input name="client" defaultValue={tender.agency ?? ""} className="input" />
+          <div>
+            <Label>Client</Label>
+            <Input name="client" defaultValue={tender.agency ?? ""} />
           </div>
-          <div className="field">
-            <label className="field-label">No. PO/SO</label>
-            <input name="poSoNumber" className="input" />
+          <div>
+            <Label>No. PO/SO</Label>
+            <Input name="poSoNumber" />
           </div>
-          <div className="field">
-            <label className="field-label">Tanggal PO/SO</label>
-            <input name="poSoDate" type="date" className="input" />
+          <div>
+            <Label>Tanggal PO/SO</Label>
+            <Input name="poSoDate" type="date" />
           </div>
-          <div className="modal-foot" style={{ borderTop: "none", paddingTop: 0 }}>
-            <button type="button" className="btn btn-secondary btn-md" onClick={() => setOpen(false)}>Batal</button>
-            <button type="submit" disabled={pending} className="btn btn-primary btn-md">
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="neutral" onClick={() => setOpen(false)}>Batal</Button>
+            <Button type="submit" loading={pending}>
               {pending ? "Mengonversi…" : "Konversi"}
-            </button>
+            </Button>
           </div>
         </form>
       )}
-    </div>
+    </Card>
   );
 }

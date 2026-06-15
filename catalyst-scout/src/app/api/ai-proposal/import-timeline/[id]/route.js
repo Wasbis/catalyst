@@ -9,7 +9,7 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const draftId = params.id;
+  const { id: draftId } = await params;
 
   try {
     const formData = await request.formData();

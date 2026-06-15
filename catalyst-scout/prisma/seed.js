@@ -10,6 +10,16 @@ const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@catalyst.local";
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "ChangeMe123!";
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME || "Admin";
 
+// Kategori dokumen default (Fase 2 — Document Management Hub), admin bisa tambah/edit/nonaktifkan via /settings/document-categories
+const DOCUMENT_CATEGORY_DATA = [
+  { name: "kontrak", label: "Kontrak", group: "legal", sortOrder: 1 },
+  { name: "bast", label: "BAST", group: "teknis", sortOrder: 2 },
+  { name: "surat_kerja", label: "Surat Kerja", group: "komersial", sortOrder: 3 },
+  { name: "dokumen_administrasi", label: "Dokumen Administrasi", group: "legal", sortOrder: 4 },
+  { name: "dokumen_teknis", label: "Dokumen Teknis", group: "teknis", sortOrder: 5 },
+  { name: "lainnya", label: "Lainnya", group: null, sortOrder: 99 },
+];
+
 // 38 KBLI hasil ekstraksi nibcri.pdf via pdf_extractor.py (lihat todo.md TAHAP "Matching & KBLI")
 const MASTER_KBLI_DATA = [
   { kbliCode: "46592", description: "Perdagangan Besar Alat Transportasi Laut, Suku Cadang Dan Perlengkapannya" },
@@ -102,10 +112,19 @@ async function seedDataMasking() {
   console.log(`DataMasking: ${result.count} baris baru ditambahkan (dari ${DATA_MASKING_DATA.length}, skip duplikat).`);
 }
 
+async function seedDocumentCategories() {
+  const result = await prisma.documentCategory.createMany({
+    data: DOCUMENT_CATEGORY_DATA,
+    skipDuplicates: true,
+  });
+  console.log(`DocumentCategory: ${result.count} baris baru ditambahkan (dari ${DOCUMENT_CATEGORY_DATA.length}, skip duplikat).`);
+}
+
 async function main() {
   await seedAdmin();
   await seedMasterKbli();
   await seedDataMasking();
+  await seedDocumentCategories();
 }
 
 main()

@@ -14,7 +14,7 @@ export default function PromoteButton({ id }) {
 
   return (
     <form action={formAction}>
-      <Button type="submit" variant="secondary" size="sm" disabled={pending}>
+      <Button type="submit" variant="neutral" size="sm" disabled={pending}>
         {pending ? "Memproses..." : "Promote"}
       </Button>
       {state?.error && <p className="mt-1 text-xs text-danger">{state.error}</p>}

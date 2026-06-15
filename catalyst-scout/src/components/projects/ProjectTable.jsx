@@ -1,65 +1,69 @@
 import Link from "next/link";
 import Badge from "@/components/ui/Badge";
+import Table from "@/components/ui/Table";
+import EmptyState from "@/components/ui/EmptyState";
 import ProjectStatusBadge from "@/components/projects/ProjectStatusBadge";
-import { formatDate } from "@/lib/formatters";
-
-const TABLE_HEADERS = ["Proyek", "Client", "Sumber", "PO/SO", "Status", "Dibuat"];
+import { formatDateTime } from "@/lib/formatters";
 
 const SOURCE_TYPE_LABELS = {
   tender: "Tender",
   non_tender: "Non-Tender",
 };
 
-export default function ProjectTable({ data }) {
-  if (data.length === 0) {
-    return (
-      <div className="px-6 py-12 text-center text-sm text-foreground-muted">
-        Belum ada proyek yang cocok dengan filter ini.
-      </div>
-    );
-  }
+const COLUMNS = [
+  {
+    key: "name",
+    header: "Proyek",
+    render: (project) => (
+      <Link href={`/projects/${project.id}`} className="font-medium text-foreground hover:text-accent">
+        {project.name}
+      </Link>
+    ),
+  },
+  {
+    key: "client",
+    header: "Client",
+    cellClassName: "px-4 py-3 align-top text-foreground-muted",
+    render: (project) => project.client,
+  },
+  {
+    key: "sourceType",
+    header: "Sumber",
+    render: (project) => (
+      <Badge className="bg-surface-hover text-foreground-muted">
+        {SOURCE_TYPE_LABELS[project.sourceType] ?? project.sourceType}
+      </Badge>
+    ),
+  },
+  {
+    key: "poSoNumber",
+    header: "PO/SO",
+    cellClassName: "px-4 py-3 align-top text-foreground-muted",
+    render: (project) => project.poSoNumber || "—",
+  },
+  {
+    key: "status",
+    header: "Status",
+    render: (project) => <ProjectStatusBadge status={project.status} />,
+  },
+  {
+    key: "createdAt",
+    header: "Dibuat",
+    cellClassName: "px-4 py-3 align-top text-foreground-muted",
+    render: (project) => formatDateTime(project.createdAt),
+  },
+];
 
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-border text-xs font-medium uppercase tracking-wide text-foreground-subtle">
-            {TABLE_HEADERS.map((header) => (
-              <th key={header} className="px-4 py-3 font-medium">
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((project) => (
-            <ProjectRow key={project.id} project={project} />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+const THEAD_CLASS = "sticky top-0 z-10 border-b border-border bg-surface-hover text-xs font-medium uppercase tracking-wide text-foreground-subtle";
 
-function ProjectRow({ project }) {
+export default function ProjectTable({ data, sticky = false }) {
   return (
-    <tr className="border-b border-border last:border-0 hover:bg-surface-hover">
-      <td className="px-4 py-3 align-top">
-        <Link href={`/projects/${project.id}`} className="font-medium text-foreground hover:text-accent">
-          {project.name}
-        </Link>
-      </td>
-      <td className="px-4 py-3 align-top text-foreground-muted">{project.client}</td>
-      <td className="px-4 py-3 align-top">
-        <Badge className="bg-surface-hover text-foreground-muted">
-          {SOURCE_TYPE_LABELS[project.sourceType] ?? project.sourceType}
-        </Badge>
-      </td>
-      <td className="px-4 py-3 align-top text-foreground-muted">{project.poSoNumber || "—"}</td>
-      <td className="px-4 py-3 align-top">
-        <ProjectStatusBadge status={project.status} />
-      </td>
-      <td className="px-4 py-3 align-top text-foreground-muted">{formatDate(project.createdAt)}</td>
-    </tr>
+    <Table
+      columns={COLUMNS}
+      data={data}
+      sticky={sticky}
+      theadClassName={sticky ? THEAD_CLASS : undefined}
+      emptyState={<EmptyState title="Belum ada proyek yang cocok dengan filter ini." />}
+    />
   );
 }
