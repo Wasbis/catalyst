@@ -378,8 +378,8 @@ Fase 1-3 punya data untuk diisi ke template.
       `/settings/document-templates`, generate dokumen (Surat Kerja/BAST/Invoice/
       Kontrak/Laporan CTR/Proposal) dari `ProjectChecklistItem`, dengan strategi
       minimalisasi token AI (§5 Fase 6)
-- [ ] **Fase 7** _(Housekeeping & UI Polish)_ — UI Standardization: Audit dan refactor
-      komponen-komponen lama (Tenders & Fase 1) agar 100% *compliant* dengan token Tailwind v4
+<!-- - [ ] **Fase 7** _(Housekeeping & UI Polish)_ — UI Standardization: Audit dan refactor
+      komponen-komponen lama (Tenders & Fase 1) agar 100% *compliant* dengan token Tailwind v4 -->
       di `cliste-design-system.md` dan `cliste-component-character.md`.
 - [ ] **(Belum berfase)** RAG Knowledge Base untuk Document Management Hub & modul lain —
       direvisit setelah Fase 1-3 jalan, lihat catatan di atas

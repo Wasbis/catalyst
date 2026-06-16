@@ -21,3 +21,32 @@ export async function GET() {
 
   return NextResponse.json({ notifications, unreadCount });
 }
+
+// Tandai semua notifikasi (milik user + global) sebagai sudah dibaca
+export async function PATCH() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  await prisma.notification.updateMany({
+    where: { OR: [{ userId: user.id }, { userId: null }], isRead: false },
+    data: { isRead: true },
+  });
+
+  return NextResponse.json({ success: true });
+}
+
+// Hapus semua notifikasi (milik user + global) dari daftar
+export async function DELETE() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  await prisma.notification.deleteMany({
+    where: { OR: [{ userId: user.id }, { userId: null }] },
+  });
+
+  return NextResponse.json({ success: true });
+}

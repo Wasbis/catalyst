@@ -49,6 +49,24 @@
   animation: shimmer 1.5s linear infinite;
 }
 
+/* Catalyst logo "trim path" draw loop — dipakai sebagai loading indicator di AppSwitcher sidebar */
+@keyframes catalyst-logo-trace {
+  to { stroke-dashoffset: -200; }
+}
+.catalyst-logo-trace {
+  stroke-dasharray: 45 155;
+  animation: catalyst-logo-trace 1.6s linear infinite;
+}
+
+@keyframes catalyst-logo-dot-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+.catalyst-logo-dot-pulse {
+  transform-origin: center;
+  animation: catalyst-logo-dot-pulse 1.6s ease-in-out infinite;
+}
+
 :root {
   /* Brand */
   --primary: #003478;

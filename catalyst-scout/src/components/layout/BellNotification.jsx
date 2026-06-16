@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -29,6 +30,40 @@ export default function BellNotification() {
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
+  const markAsRead = useCallback(async (id) => {
+    setNotifications((prev) =>
+      prev.map((notification) =>
+        notification.id === id ? { ...notification, isRead: true } : notification
+      )
+    );
+    setUnreadCount((prev) => Math.max(0, prev - 1));
+    try {
+      await fetch(`/api/notifications/${id}`, { method: "PATCH" });
+    } catch {
+      // Diam-diam gagal — status read tetap optimis di UI, sinkron lagi saat polling berikutnya
+    }
+  }, []);
+
+  const markAllAsRead = useCallback(async () => {
+    setNotifications((prev) => prev.map((notification) => ({ ...notification, isRead: true })));
+    setUnreadCount(0);
+    try {
+      await fetch("/api/notifications", { method: "PATCH" });
+    } catch {
+      // Diam-diam gagal — sinkron lagi saat polling berikutnya
+    }
+  }, []);
+
+  const clearAll = useCallback(async () => {
+    setNotifications([]);
+    setUnreadCount(0);
+    try {
+      await fetch("/api/notifications", { method: "DELETE" });
+    } catch {
+      // Diam-diam gagal — sinkron lagi saat polling berikutnya
+    }
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (containerRef.current && !containerRef.current.contains(event.target)) {
@@ -56,8 +91,28 @@ export default function BellNotification() {
 
       {open && (
         <div className="absolute right-0 z-10 mt-2 w-80 rounded-xl border border-border bg-surface shadow-lg">
-          <div className="border-b border-border px-4 py-2 text-sm font-medium text-foreground">
-            Notifikasi
+          <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm font-medium text-foreground">
+            <span>Notifikasi</span>
+            {notifications.length > 0 && (
+              <div className="flex items-center gap-3 text-xs font-normal">
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={markAllAsRead}
+                    className="text-accent hover:underline"
+                  >
+                    Tandai semua dibaca
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  className="text-foreground-muted hover:underline"
+                >
+                  Hapus semua
+                </button>
+              </div>
+            )}
           </div>
           <ul className="max-h-80 overflow-y-auto">
             {notifications.length === 0 && (
@@ -67,7 +122,7 @@ export default function BellNotification() {
             )}
             {notifications.map((notification) => (
               <li key={notification.id} className="border-b border-border last:border-0">
-                <NotificationItem notification={notification} />
+                <NotificationItem notification={notification} onRead={markAsRead} />
               </li>
             ))}
           </ul>
@@ -77,7 +132,9 @@ export default function BellNotification() {
   );
 }
 
-function NotificationItem({ notification }) {
+function NotificationItem({ notification, onRead }) {
+  const router = useRouter();
+
   const content = (
     <div className={`px-4 py-3 text-sm ${notification.isRead ? "" : "bg-accent/5"}`}>
       <p className="font-medium text-foreground">{notification.title}</p>
@@ -88,15 +145,29 @@ function NotificationItem({ notification }) {
     </div>
   );
 
+  const handleClick = (event) => {
+    if (!notification.isRead) {
+      onRead(notification.id);
+    }
+    if (notification.actionLink) {
+      event.preventDefault();
+      router.push(notification.actionLink);
+    }
+  };
+
   if (notification.actionLink) {
     return (
-      <a href={notification.actionLink} className="block hover:bg-surface-hover">
+      <a href={notification.actionLink} onClick={handleClick} className="block hover:bg-surface-hover">
         {content}
       </a>
     );
   }
 
-  return content;
+  return (
+    <button type="button" onClick={handleClick} className="block w-full text-left hover:bg-surface-hover">
+      {content}
+    </button>
+  );
 }
 
 function BellIcon(props) {

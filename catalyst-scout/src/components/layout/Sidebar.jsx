@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
+import AppSwitcher from "./AppSwitcher";
 
 const NAV_GROUPS = [
   {
@@ -54,46 +55,51 @@ export default function Sidebar({ collapsed, onToggleCollapse, user }) {
     items: group.items.filter((item) => !item.adminOnly || user?.role === "admin"),
   })).filter((group) => group.items.length > 0);
 
+  const transition = "transition-all duration-250 ease-[cubic-bezier(0.4,0,0.2,1)]";
+
   return (
     <aside
-      className={`h-screen flex flex-col bg-surface border-r border-border overflow-hidden flex-shrink-0 transition-[width] duration-250 ease-[cubic-bezier(0.4,0,0.2,1)] ${collapsed ? "w-16" : "w-60"}`}
+      className={`relative h-screen flex flex-col bg-surface border-r border-border flex-shrink-0 ${transition} ${collapsed ? "w-20" : "w-72"}`}
     >
-      {/* Logo zone */}
-      <div className={`h-14 flex items-center gap-2.5 border-b border-border flex-shrink-0 ${collapsed ? "justify-center px-0" : "px-3"}`}>
-        <div className="w-[26px] h-[26px] rounded-[7px] bg-accent text-white font-medium text-sm flex items-center justify-center flex-shrink-0">
-          C
-        </div>
-        {!collapsed && (
-          <div className="overflow-hidden">
-            <div className="text-[13px] font-medium text-foreground whitespace-nowrap">Catalyst</div>
-            <div className="text-[11px] text-foreground-muted whitespace-nowrap">Project Maker by Cliste</div>
-          </div>
-        )}
-      </div>
+      {/* App switcher */}
+      <AppSwitcher collapsed={collapsed} />
+
+      {/* Toggle collapse — setengah nempel di border sidebar, setengah di main */}
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        className={`absolute -right-3 top-[28px] z-50 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface text-foreground-muted shadow-sm ${transition} hover:border-accent/30 hover:bg-surface-hover hover:text-foreground`}
+      >
+        <ChevronLeft size={14} className={`${transition} ${collapsed ? "rotate-180" : ""}`} />
+      </button>
 
       {/* Nav */}
-      <nav className={`flex-1 overflow-y-auto py-3 flex flex-col gap-5 ${collapsed ? "px-2" : "px-2.5"}`}>
+      <nav className={`flex-1 overflow-y-auto py-3 flex flex-col gap-5 ${transition} ${collapsed ? "px-2" : "px-2.5"}`}>
         {navGroups.map((group) => (
           <div key={group.label} className="flex flex-col gap-0.5">
-            {!collapsed && (
-              <div className="px-3 mb-1 text-[10px] font-normal uppercase tracking-wider text-foreground-subtle whitespace-nowrap overflow-hidden">
-                {group.label}
-              </div>
-            )}
+            <div
+              className={`overflow-hidden px-3 text-[10px] font-normal uppercase tracking-wider text-foreground-subtle whitespace-nowrap ${transition} ${
+                collapsed ? "max-h-0 opacity-0" : "max-h-4 opacity-100 mb-1"
+              }`}
+            >
+              {group.label}
+            </div>
             {group.items.map(({ href, label, Icon }) => {
               const isActive = isItemActive(pathname, href);
               return (
                 <Link
                   key={href}
                   href={href}
-                  className={`group relative h-[38px] flex items-center gap-2.5 rounded-lg text-sm transition-colors duration-120 ease-out ${collapsed ? "justify-center px-0" : "px-3"} ${
+                  className={`group relative h-[38px] flex items-center gap-2.5 rounded-lg text-sm ${transition} ${collapsed ? "justify-center px-0" : "px-3"} ${
                     isActive
                       ? "bg-accent-active text-accent dark:text-accent-400 font-medium"
                       : "text-foreground-muted hover:bg-surface-hover hover:text-foreground"
                   }`}
                 >
                   <Icon />
-                  {!collapsed && <span className="whitespace-nowrap overflow-hidden">{label}</span>}
+                  <span className={`whitespace-nowrap overflow-hidden ${transition} ${collapsed ? "max-w-0 opacity-0" : "max-w-[160px] opacity-100"}`}>
+                    {label}
+                  </span>
                   {collapsed && (
                     <span className="pointer-events-none absolute left-full ml-2 z-50 whitespace-nowrap rounded-lg bg-surface border border-border px-2.5 py-1.5 text-xs text-foreground opacity-0 shadow-sm transition-opacity duration-120 group-hover:opacity-100">
                       {label}
@@ -107,21 +113,15 @@ export default function Sidebar({ collapsed, onToggleCollapse, user }) {
       </nav>
 
       {/* Footer */}
-      <div className={`border-t border-border flex-shrink-0 flex flex-col gap-2 ${collapsed ? "p-2 items-center" : "p-3"}`}>
-        {!collapsed && (
-          <div className="flex items-center gap-1.5 rounded-[9px] bg-surface-hover px-2.5 py-1.5 text-[11px] text-foreground-muted overflow-hidden">
-            <span className="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0" />
-            <span className="truncate">Server Tailscale · 100.112.188.84</span>
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className={`flex items-center gap-2 rounded-lg text-xs font-normal text-foreground-muted hover:bg-surface-hover hover:text-foreground transition-colors duration-120 ease-out ${collapsed ? "p-2 justify-center w-full" : "px-2.5 py-2 w-full"}`}
+      <div className={`border-t border-border flex-shrink-0 ${transition} ${collapsed ? "p-2" : "p-3"}`}>
+        <div
+          className={`flex items-center gap-1.5 overflow-hidden rounded-[9px] bg-surface-hover text-[11px] text-foreground-muted ${transition} ${
+            collapsed ? "max-h-0 opacity-0 px-0 py-0" : "max-h-8 opacity-100 px-2.5 py-1.5"
+          }`}
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          {!collapsed && <span>Ciutkan</span>}
-        </button>
+          <span className="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0" />
+          <span className="truncate">Server Tailscale · 100.112.188.84</span>
+        </div>
       </div>
     </aside>
   );
